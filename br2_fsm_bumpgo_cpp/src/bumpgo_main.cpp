@@ -12,19 +12,15 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-#include <memory>
-
 #include "br2_fsm_bumpgo_cpp/BumpGoNode.hpp"
-#include "rclcpp/rclcpp.hpp"
+#include "ros/ros.h"
 
 int main(int argc, char * argv[])
 {
-  rclcpp::init(argc, argv);
+  ros::init(argc, argv, "bump_go");
 
-  auto bumpgo_node = std::make_shared<br2_fsm_bumpgo_cpp::BumpGoNode>();
-  rclcpp::spin(bumpgo_node);
-
-  rclcpp::shutdown();
+  br2_fsm_bumpgo_cpp::BumpGoNode bumpgo_node;
+  ros::spin();
 
   return 0;
 }

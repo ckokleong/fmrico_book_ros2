@@ -1,42 +1,31 @@
-cmake_minimum_required(VERSION 3.5)
+cmake_minimum_required(VERSION 3.0.2)
 project(br2_fsm_bumpgo_cpp)
 
 set(CMAKE_CXX_STANDARD 17)
 
-find_package(ament_cmake REQUIRED)
-find_package(rclcpp REQUIRED)
-find_package(sensor_msgs REQUIRED)
-find_package(geometry_msgs REQUIRED)
-
-set(dependencies
-  rclcpp
+find_package(catkin REQUIRED COMPONENTS
+  roscpp
   sensor_msgs
   geometry_msgs
 )
 
-include_directories(include)
+catkin_package()
+
+include_directories(
+  include
+  ${catkin_INCLUDE_DIRS}
+)
 
 add_executable(bumpgo
   src/br2_fsm_bumpgo_cpp/BumpGoNode.cpp
   src/bumpgo_main.cpp
 )
-ament_target_dependencies(bumpgo ${dependencies})
+target_link_libraries(bumpgo ${catkin_LIBRARIES})
 
-install(TARGETS
-  bumpgo
-  ARCHIVE DESTINATION lib
-  LIBRARY DESTINATION lib
-  RUNTIME DESTINATION lib/${PROJECT_NAME}
+install(TARGETS bumpgo
+  RUNTIME DESTINATION ${CATKIN_PACKAGE_BIN_DESTINATION}
 )
 
-install(DIRECTORY launch DESTINATION share/${PROJECT_NAME})
-
-if(BUILD_TESTING)
-  find_package(ament_lint_auto REQUIRED)
-  ament_lint_auto_find_test_dependencies()
-
-  set(ament_cmake_cpplint_FOUND TRUE)
-  ament_lint_auto_find_test_dependencies()
-endif()
-
-ament_package()
+install(DIRECTORY launch/
+  DESTINATION ${CATKIN_PACKAGE_SHARE_DESTINATION}/launch
+)
