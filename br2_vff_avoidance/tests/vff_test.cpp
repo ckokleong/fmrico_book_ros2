@@ -14,34 +14,32 @@
 
 #include <limits>
 #include <vector>
-#include <memory>
 
-#include "sensor_msgs/msg/laser_scan.hpp"
+#include "sensor_msgs/LaserScan.h"
 #include "br2_vff_avoidance/AvoidanceNode.hpp"
 
+#include "ros/ros.h"
 #include "gtest/gtest.h"
-
-using namespace std::chrono_literals;
 
 class AvoidanceNodeTest : public br2_vff_avoidance::AvoidanceNode
 {
 public:
   br2_vff_avoidance::VFFVectors
-  get_vff_test(const sensor_msgs::msg::LaserScan & scan)
+  get_vff_test(const sensor_msgs::LaserScan & scan)
   {
     return get_vff(scan);
   }
 
-  visualization_msgs::msg::MarkerArray
+  visualization_msgs::MarkerArray
   get_debug_vff_test(const br2_vff_avoidance::VFFVectors & vff_vectors)
   {
     return get_debug_vff(vff_vectors);
   }
 };
 
-sensor_msgs::msg::LaserScan get_scan_test_1(rclcpp::Time ts)
+sensor_msgs::LaserScan get_scan_test_1(ros::Time ts)
 {
-  sensor_msgs::msg::LaserScan ret;
+  sensor_msgs::LaserScan ret;
   ret.header.stamp = ts;
   ret.angle_min = -M_PI;
   ret.angle_max = M_PI;
@@ -51,9 +49,9 @@ sensor_msgs::msg::LaserScan get_scan_test_1(rclcpp::Time ts)
   return ret;
 }
 
-sensor_msgs::msg::LaserScan get_scan_test_2(rclcpp::Time ts)
+sensor_msgs::LaserScan get_scan_test_2(ros::Time ts)
 {
-  sensor_msgs::msg::LaserScan ret;
+  sensor_msgs::LaserScan ret;
   ret.header.stamp = ts;
   ret.angle_min = -M_PI;
   ret.angle_max = M_PI;
@@ -63,9 +61,9 @@ sensor_msgs::msg::LaserScan get_scan_test_2(rclcpp::Time ts)
   return ret;
 }
 
-sensor_msgs::msg::LaserScan get_scan_test_3(rclcpp::Time ts)
+sensor_msgs::LaserScan get_scan_test_3(ros::Time ts)
 {
-  sensor_msgs::msg::LaserScan ret;
+  sensor_msgs::LaserScan ret;
   ret.header.stamp = ts;
   ret.angle_min = -M_PI;
   ret.angle_max = M_PI;
@@ -76,9 +74,9 @@ sensor_msgs::msg::LaserScan get_scan_test_3(rclcpp::Time ts)
   return ret;
 }
 
-sensor_msgs::msg::LaserScan get_scan_test_4(rclcpp::Time ts)
+sensor_msgs::LaserScan get_scan_test_4(ros::Time ts)
 {
-  sensor_msgs::msg::LaserScan ret;
+  sensor_msgs::LaserScan ret;
   ret.header.stamp = ts;
   ret.angle_min = -M_PI;
   ret.angle_max = M_PI;
@@ -89,9 +87,9 @@ sensor_msgs::msg::LaserScan get_scan_test_4(rclcpp::Time ts)
   return ret;
 }
 
-sensor_msgs::msg::LaserScan get_scan_test_5(rclcpp::Time ts)
+sensor_msgs::LaserScan get_scan_test_5(ros::Time ts)
 {
-  sensor_msgs::msg::LaserScan ret;
+  sensor_msgs::LaserScan ret;
   ret.header.stamp = ts;
   ret.angle_min = -M_PI;
   ret.angle_max = M_PI;
@@ -102,9 +100,9 @@ sensor_msgs::msg::LaserScan get_scan_test_5(rclcpp::Time ts)
   return ret;
 }
 
-sensor_msgs::msg::LaserScan get_scan_test_6(rclcpp::Time ts)
+sensor_msgs::LaserScan get_scan_test_6(ros::Time ts)
 {
-  sensor_msgs::msg::LaserScan ret;
+  sensor_msgs::LaserScan ret;
   ret.header.stamp = ts;
   ret.angle_min = -M_PI;
   ret.angle_max = M_PI;
@@ -115,9 +113,9 @@ sensor_msgs::msg::LaserScan get_scan_test_6(rclcpp::Time ts)
   return ret;
 }
 
-sensor_msgs::msg::LaserScan get_scan_test_7(rclcpp::Time ts)
+sensor_msgs::LaserScan get_scan_test_7(ros::Time ts)
 {
-  sensor_msgs::msg::LaserScan ret;
+  sensor_msgs::LaserScan ret;
   ret.header.stamp = ts;
   ret.angle_min = -M_PI;
   ret.angle_max = M_PI;
@@ -128,9 +126,9 @@ sensor_msgs::msg::LaserScan get_scan_test_7(rclcpp::Time ts)
   return ret;
 }
 
-sensor_msgs::msg::LaserScan get_scan_test_8(rclcpp::Time ts)
+sensor_msgs::LaserScan get_scan_test_8(ros::Time ts)
 {
-  sensor_msgs::msg::LaserScan ret;
+  sensor_msgs::LaserScan ret;
   ret.header.stamp = ts;
   ret.angle_min = -M_PI;
   ret.angle_max = M_PI;
@@ -143,9 +141,9 @@ sensor_msgs::msg::LaserScan get_scan_test_8(rclcpp::Time ts)
 
 TEST(vff_tests, get_vff)
 {
-  auto node_avoidance = AvoidanceNodeTest();
+  AvoidanceNodeTest node_avoidance;
 
-  rclcpp::Time ts = node_avoidance.now();
+  ros::Time ts = ros::Time::now();
 
   auto res1 = node_avoidance.get_vff_test(get_scan_test_1(ts));
   ASSERT_EQ(res1.attractive, std::vector<float>({1.0f, 0.0f}));
@@ -214,51 +212,52 @@ TEST(vff_tests, get_vff)
 
 TEST(vff_tests, ouput_vels)
 {
-  auto node_avoidance = std::make_shared<AvoidanceNodeTest>();
+  AvoidanceNodeTest node_avoidance;
 
   // Create a testing node with a scan publisher and a speed subscriber
-  auto test_node = rclcpp::Node::make_shared("test_node");
-  auto scan_pub = test_node->create_publisher<sensor_msgs::msg::LaserScan>("input_scan", 100);
+  ros::NodeHandle nh;
+  ros::Publisher scan_pub = nh.advertise<sensor_msgs::LaserScan>("input_scan", 100);
 
-  geometry_msgs::msg::Twist last_vel;
-  auto vel_sub = test_node->create_subscription<geometry_msgs::msg::Twist>(
-    "output_vel", 1, [&last_vel](geometry_msgs::msg::Twist::SharedPtr msg) {
+  geometry_msgs::Twist last_vel;
+  ros::Subscriber vel_sub = nh.subscribe<geometry_msgs::Twist>(
+    "output_vel", 1, [&last_vel](const geometry_msgs::Twist::ConstPtr & msg) {
       last_vel = *msg;
     });
 
-  ASSERT_EQ(vel_sub->get_publisher_count(), 1);
-  ASSERT_EQ(scan_pub->get_subscription_count(), 1);
+  // Wait for connections to establish
+  ros::Duration(0.5).sleep();
+  ros::spinOnce();
 
-  rclcpp::Rate rate(30);
-  rclcpp::executors::SingleThreadedExecutor executor;
-  executor.add_node(node_avoidance);
-  executor.add_node(test_node);
+  ASSERT_EQ(vel_sub.getNumPublishers(), 1u);
+  ASSERT_EQ(scan_pub.getNumSubscribers(), 1u);
+
+  ros::Rate rate(30);
 
   // Test for scan test #1
-  auto start = node_avoidance->now();
-  while (rclcpp::ok() && (node_avoidance->now() - start) < 1s) {
-    scan_pub->publish(get_scan_test_1(node_avoidance->now()));
-    executor.spin_some();
+  ros::Time start = ros::Time::now();
+  while (ros::ok() && (ros::Time::now() - start) < ros::Duration(1.0)) {
+    scan_pub.publish(get_scan_test_1(ros::Time::now()));
+    ros::spinOnce();
     rate.sleep();
   }
   ASSERT_NEAR(last_vel.linear.x, 0.3f, 0.0001f);
   ASSERT_NEAR(last_vel.angular.z, 0.0f, 0.0001f);
 
   // Test for scan test #2
-  start = node_avoidance->now();
-  while (rclcpp::ok() && (node_avoidance->now() - start) < 1s) {
-    scan_pub->publish(get_scan_test_2(node_avoidance->now()));
-    executor.spin_some();
+  start = ros::Time::now();
+  while (ros::ok() && (ros::Time::now() - start) < ros::Duration(1.0)) {
+    scan_pub.publish(get_scan_test_2(ros::Time::now()));
+    ros::spinOnce();
     rate.sleep();
   }
   ASSERT_NEAR(last_vel.linear.x, 0.3f, 0.0001f);
   ASSERT_NEAR(last_vel.angular.z, 0.0f, 0.0001f);
 
   // Test for scan test #3
-  start = node_avoidance->now();
-  while (rclcpp::ok() && (node_avoidance->now() - start) < 1s) {
-    scan_pub->publish(get_scan_test_3(node_avoidance->now()));
-    executor.spin_some();
+  start = ros::Time::now();
+  while (ros::ok() && (ros::Time::now() - start) < ros::Duration(1.0)) {
+    scan_pub.publish(get_scan_test_3(ros::Time::now()));
+    ros::spinOnce();
     rate.sleep();
   }
   ASSERT_LT(last_vel.linear.x, 0.3f);
@@ -267,10 +266,10 @@ TEST(vff_tests, ouput_vels)
   ASSERT_LT(last_vel.angular.z, M_PI_2);
 
   // Test for scan test #4
-  start = node_avoidance->now();
-  while (rclcpp::ok() && (node_avoidance->now() - start) < 1s) {
-    scan_pub->publish(get_scan_test_4(node_avoidance->now()));
-    executor.spin_some();
+  start = ros::Time::now();
+  while (ros::ok() && (ros::Time::now() - start) < ros::Duration(1.0)) {
+    scan_pub.publish(get_scan_test_4(ros::Time::now()));
+    ros::spinOnce();
     rate.sleep();
   }
   ASSERT_LT(last_vel.linear.x, 0.3f);
@@ -279,10 +278,10 @@ TEST(vff_tests, ouput_vels)
   ASSERT_LT(last_vel.angular.z, M_PI_2);
 
   // Test for scan test #5
-  start = node_avoidance->now();
-  while (rclcpp::ok() && (node_avoidance->now() - start) < 1s) {
-    scan_pub->publish(get_scan_test_5(node_avoidance->now()));
-    executor.spin_some();
+  start = ros::Time::now();
+  while (ros::ok() && (ros::Time::now() - start) < ros::Duration(1.0)) {
+    scan_pub.publish(get_scan_test_5(ros::Time::now()));
+    ros::spinOnce();
     rate.sleep();
   }
   ASSERT_LT(last_vel.linear.x, 0.3f);
@@ -291,10 +290,10 @@ TEST(vff_tests, ouput_vels)
   ASSERT_GT(last_vel.angular.z, -M_PI_2);
 
   // Test for scan test #6
-  start = node_avoidance->now();
-  while (rclcpp::ok() && (node_avoidance->now() - start) < 1s) {
-    scan_pub->publish(get_scan_test_6(node_avoidance->now()));
-    executor.spin_some();
+  start = ros::Time::now();
+  while (ros::ok() && (ros::Time::now() - start) < ros::Duration(1.0)) {
+    scan_pub.publish(get_scan_test_6(ros::Time::now()));
+    ros::spinOnce();
     rate.sleep();
   }
   ASSERT_LT(last_vel.linear.x, 0.3f);
@@ -303,10 +302,10 @@ TEST(vff_tests, ouput_vels)
   ASSERT_GT(last_vel.angular.z, -M_PI_2);
 
   // Test for scan test #7
-  start = node_avoidance->now();
-  while (rclcpp::ok() && (node_avoidance->now() - start) < 1s) {
-    scan_pub->publish(get_scan_test_7(node_avoidance->now()));
-    executor.spin_some();
+  start = ros::Time::now();
+  while (ros::ok() && (ros::Time::now() - start) < ros::Duration(1.0)) {
+    scan_pub.publish(get_scan_test_7(ros::Time::now()));
+    ros::spinOnce();
     rate.sleep();
   }
   ASSERT_LT(last_vel.linear.x, 0.3f);
@@ -315,21 +314,21 @@ TEST(vff_tests, ouput_vels)
   ASSERT_GT(last_vel.angular.z, -M_PI_2);
 
   // Test for scan test #8
-  start = node_avoidance->now();
-  while (rclcpp::ok() && (node_avoidance->now() - start) < 2s) {
-    scan_pub->publish(get_scan_test_8(node_avoidance->now()));
-    executor.spin_some();
+  start = ros::Time::now();
+  while (ros::ok() && (ros::Time::now() - start) < ros::Duration(2.0)) {
+    scan_pub.publish(get_scan_test_8(ros::Time::now()));
+    ros::spinOnce();
     rate.sleep();
   }
   ASSERT_NEAR(last_vel.linear.x, 0.0f, 0.1f);
   ASSERT_LT(last_vel.angular.z, 0.0f);
   ASSERT_GT(last_vel.angular.z, -M_PI_2);
 
-  // Test for stooping when scan is too old
-  last_vel = geometry_msgs::msg::Twist();
-  while (rclcpp::ok() && (node_avoidance->now() - start) < 3s) {
-    scan_pub->publish(get_scan_test_6(start));
-    executor.spin_some();
+  // Test for stopping when scan is too old
+  last_vel = geometry_msgs::Twist();
+  while (ros::ok() && (ros::Time::now() - start) < ros::Duration(3.0)) {
+    scan_pub.publish(get_scan_test_6(start));
+    ros::spinOnce();
     rate.sleep();
   }
   ASSERT_NEAR(last_vel.linear.x, 0.0f, 0.01f);
@@ -338,7 +337,7 @@ TEST(vff_tests, ouput_vels)
 
 int main(int argc, char ** argv)
 {
-  rclcpp::init(argc, argv);
+  ros::init(argc, argv, "vff_test");
 
   testing::InitGoogleTest(&argc, argv);
   return RUN_ALL_TESTS();

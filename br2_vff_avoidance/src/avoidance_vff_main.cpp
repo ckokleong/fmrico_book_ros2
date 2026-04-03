@@ -12,19 +12,15 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-#include <memory>
-
 #include "br2_vff_avoidance/AvoidanceNode.hpp"
-#include "rclcpp/rclcpp.hpp"
+#include "ros/ros.h"
 
 int main(int argc, char * argv[])
 {
-  rclcpp::init(argc, argv);
+  ros::init(argc, argv, "avoidance_vff");
 
-  auto avoidance_node = std::make_shared<br2_vff_avoidance::AvoidanceNode>();
-  rclcpp::spin(avoidance_node);
-
-  rclcpp::shutdown();
+  br2_vff_avoidance::AvoidanceNode avoidance_node;
+  ros::spin();
 
   return 0;
 }

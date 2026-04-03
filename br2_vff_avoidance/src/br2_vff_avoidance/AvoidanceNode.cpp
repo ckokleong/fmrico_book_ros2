@@ -13,48 +13,41 @@
 // limitations under the License.
 
 
-#include <memory>
-#include <utility>
 #include <algorithm>
 #include <vector>
 
-#include "geometry_msgs/msg/twist.hpp"
-#include "sensor_msgs/msg/laser_scan.hpp"
-#include "visualization_msgs/msg/marker_array.hpp"
+#include "geometry_msgs/Twist.h"
+#include "sensor_msgs/LaserScan.h"
+#include "visualization_msgs/MarkerArray.h"
 
 #include "br2_vff_avoidance/AvoidanceNode.hpp"
 
-#include "rclcpp/rclcpp.hpp"
-
-using std::placeholders::_1;
-using namespace std::chrono_literals;
+#include "ros/ros.h"
 
 namespace br2_vff_avoidance
 {
 
 AvoidanceNode::AvoidanceNode()
-: Node("avoidance_vff")
 {
-  vel_pub_ = create_publisher<geometry_msgs::msg::Twist>("output_vel", 100);
-  vff_debug_pub_ = create_publisher<visualization_msgs::msg::MarkerArray>("vff_debug", 100);
+  vel_pub_ = nh_.advertise<geometry_msgs::Twist>("output_vel", 100);
+  vff_debug_pub_ = nh_.advertise<visualization_msgs::MarkerArray>("vff_debug", 100);
 
-  scan_sub_ = create_subscription<sensor_msgs::msg::LaserScan>(
-    "input_scan", rclcpp::SensorDataQoS(), std::bind(&AvoidanceNode::scan_callback, this, _1));
+  scan_sub_ = nh_.subscribe("input_scan", 1, &AvoidanceNode::scan_callback, this);
 
-  timer_ = create_wall_timer(50ms, std::bind(&AvoidanceNode::control_cycle, this));
+  timer_ = nh_.createTimer(ros::Duration(0.05), &AvoidanceNode::control_cycle, this);
 }
 
 void
-AvoidanceNode::scan_callback(sensor_msgs::msg::LaserScan::UniquePtr msg)
+AvoidanceNode::scan_callback(const sensor_msgs::LaserScan::ConstPtr & msg)
 {
-  last_scan_ = std::move(msg);
+  last_scan_ = msg;
 }
 
 void
-AvoidanceNode::control_cycle()
+AvoidanceNode::control_cycle(const ros::TimerEvent & event)
 {
   // Skip cycle if no valid recent scan available
-  if (last_scan_ == nullptr || (now() - last_scan_->header.stamp) > 1s) {
+  if (last_scan_ == nullptr || (ros::Time::now() - last_scan_->header.stamp) > ros::Duration(1.0)) {
     return;
   }
 
@@ -67,20 +60,20 @@ AvoidanceNode::control_cycle()
   double module = sqrt(v[0] * v[0] + v[1] * v[1]);
 
   // Create ouput message, controlling speed limits
-  geometry_msgs::msg::Twist vel;
+  geometry_msgs::Twist vel;
   vel.linear.x = std::clamp(module, 0.0, 0.3);  // truncate linear vel to [0.0, 0.3] m/s
   vel.angular.z = std::clamp(angle, -0.5, 0.5);  // truncate rotation vel to [-0.5, 0.5] rad/s
 
-  vel_pub_->publish(vel);
+  vel_pub_.publish(vel);
 
   // Produce debug information, if any interested
-  if (vff_debug_pub_->get_subscription_count() > 0) {
-    vff_debug_pub_->publish(get_debug_vff(vff));
+  if (vff_debug_pub_.getNumSubscribers() > 0) {
+    vff_debug_pub_.publish(get_debug_vff(vff));
   }
 }
 
 VFFVectors
-AvoidanceNode::get_vff(const sensor_msgs::msg::LaserScan & scan)
+AvoidanceNode::get_vff(const sensor_msgs::LaserScan & scan)
 {
   // This is the obstacle radious in which an obstacle affects the robot
   const float OBSTACLE_DISTANCE = 1.0;
@@ -117,10 +110,10 @@ AvoidanceNode::get_vff(const sensor_msgs::msg::LaserScan & scan)
   return vff_vector;
 }
 
-visualization_msgs::msg::MarkerArray
+visualization_msgs::MarkerArray
 AvoidanceNode::get_debug_vff(const VFFVectors & vff_vectors)
 {
-  visualization_msgs::msg::MarkerArray marker_array;
+  visualization_msgs::MarkerArray marker_array;
 
   marker_array.markers.push_back(make_marker(vff_vectors.attractive, BLUE));
   marker_array.markers.push_back(make_marker(vff_vectors.repulsive, RED));
@@ -129,23 +122,24 @@ AvoidanceNode::get_debug_vff(const VFFVectors & vff_vectors)
   return marker_array;
 }
 
-visualization_msgs::msg::Marker
+visualization_msgs::Marker
 AvoidanceNode::make_marker(const std::vector<float> & vector, VFFColor vff_color)
 {
-  visualization_msgs::msg::Marker marker;
+  visualization_msgs::Marker marker;
 
   marker.header.frame_id = "base_footprint";
-  marker.header.stamp = now();
-  marker.type = visualization_msgs::msg::Marker::ARROW;
-  marker.id = visualization_msgs::msg::Marker::ADD;
+  marker.header.stamp = ros::Time::now();
+  marker.type = visualization_msgs::Marker::ARROW;
+  marker.id = visualization_msgs::Marker::ADD;
 
-  geometry_msgs::msg::Point start;
+  geometry_msgs::Point start;
   start.x = 0.0;
   start.y = 0.0;
-  geometry_msgs::msg::Point end;
+  geometry_msgs::Point end;
   start.x = vector[0];
   start.y = vector[1];
-  marker.points = {end, start};
+  marker.points.push_back(end);
+  marker.points.push_back(start);
 
   marker.scale.x = 0.05;
   marker.scale.y = 0.1;

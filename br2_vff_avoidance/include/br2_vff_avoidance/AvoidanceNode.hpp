@@ -15,14 +15,13 @@
 #ifndef BR2_VFF_AVOIDANCE__AVOIDANCENODE_HPP_
 #define BR2_VFF_AVOIDANCE__AVOIDANCENODE_HPP_
 
-#include <memory>
 #include <vector>
 
-#include "geometry_msgs/msg/twist.hpp"
-#include "sensor_msgs/msg/laser_scan.hpp"
-#include "visualization_msgs/msg/marker_array.hpp"
+#include "geometry_msgs/Twist.h"
+#include "sensor_msgs/LaserScan.h"
+#include "visualization_msgs/MarkerArray.h"
 
-#include "rclcpp/rclcpp.hpp"
+#include "ros/ros.h"
 
 namespace br2_vff_avoidance
 {
@@ -36,28 +35,30 @@ struct VFFVectors
 
 typedef enum {RED, GREEN, BLUE, NUM_COLORS} VFFColor;
 
-class AvoidanceNode : public rclcpp::Node
+class AvoidanceNode
 {
 public:
   AvoidanceNode();
 
-  void scan_callback(sensor_msgs::msg::LaserScan::UniquePtr msg);
-  void control_cycle();
+  void scan_callback(const sensor_msgs::LaserScan::ConstPtr & msg);
+  void control_cycle(const ros::TimerEvent & event);
 
 protected:
-  VFFVectors get_vff(const sensor_msgs::msg::LaserScan & scan);
+  VFFVectors get_vff(const sensor_msgs::LaserScan & scan);
 
-  visualization_msgs::msg::MarkerArray get_debug_vff(const VFFVectors & vff_vectors);
-  visualization_msgs::msg::Marker make_marker(
+  visualization_msgs::MarkerArray get_debug_vff(const VFFVectors & vff_vectors);
+  visualization_msgs::Marker make_marker(
     const std::vector<float> & vector, VFFColor vff_color);
 
 private:
-  rclcpp::Publisher<geometry_msgs::msg::Twist>::SharedPtr vel_pub_;
-  rclcpp::Publisher<visualization_msgs::msg::MarkerArray>::SharedPtr vff_debug_pub_;
-  rclcpp::Subscription<sensor_msgs::msg::LaserScan>::SharedPtr scan_sub_;
-  rclcpp::TimerBase::SharedPtr timer_;
+  ros::NodeHandle nh_;
 
-  sensor_msgs::msg::LaserScan::UniquePtr last_scan_;
+  ros::Publisher vel_pub_;
+  ros::Publisher vff_debug_pub_;
+  ros::Subscriber scan_sub_;
+  ros::Timer timer_;
+
+  sensor_msgs::LaserScan::ConstPtr last_scan_;
 };
 
 }  // namespace br2_vff_avoidance
