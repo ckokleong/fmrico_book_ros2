@@ -1,35 +1,35 @@
-cmake_minimum_required(VERSION 3.5)
+cmake_minimum_required(VERSION 3.0.2)
 project(br2_basics)
 
-find_package(ament_cmake REQUIRED)
-find_package(rclcpp REQUIRED)
-find_package(std_msgs REQUIRED)
-
-set(dependencies
-    rclcpp
-    std_msgs
+find_package(catkin REQUIRED COMPONENTS
+  roscpp
+  std_msgs
 )
 
+catkin_package()
+
+include_directories(${catkin_INCLUDE_DIRS})
+
 add_executable(publisher src/publisher.cpp)
-ament_target_dependencies(publisher ${dependencies})
+target_link_libraries(publisher ${catkin_LIBRARIES})
 
 add_executable(publisher_class src/publisher_class.cpp)
-ament_target_dependencies(publisher_class ${dependencies})
+target_link_libraries(publisher_class ${catkin_LIBRARIES})
 
 add_executable(subscriber_class src/subscriber_class.cpp)
-ament_target_dependencies(subscriber_class ${dependencies})
+target_link_libraries(subscriber_class ${catkin_LIBRARIES})
 
 add_executable(executors src/executors.cpp)
-ament_target_dependencies(executors ${dependencies})
+target_link_libraries(executors ${catkin_LIBRARIES})
 
 add_executable(logger src/logger.cpp)
-ament_target_dependencies(logger ${dependencies})
+target_link_libraries(logger ${catkin_LIBRARIES})
 
 add_executable(logger_class src/logger_class.cpp)
-ament_target_dependencies(logger_class ${dependencies})
+target_link_libraries(logger_class ${catkin_LIBRARIES})
 
 add_executable(param_reader src/param_reader.cpp)
-ament_target_dependencies(param_reader ${dependencies})
+target_link_libraries(param_reader ${catkin_LIBRARIES})
 
 install(TARGETS
   publisher
@@ -39,17 +39,9 @@ install(TARGETS
   logger
   logger_class
   param_reader
-  ARCHIVE DESTINATION lib
-  LIBRARY DESTINATION lib
-  RUNTIME DESTINATION lib/${PROJECT_NAME}
+  RUNTIME DESTINATION ${CATKIN_PACKAGE_BIN_DESTINATION}
 )
 
-install(DIRECTORY launch config DESTINATION share/${PROJECT_NAME})
-
-if(BUILD_TESTING)
-  find_package(ament_lint_auto REQUIRED)
-  ament_lint_auto_find_test_dependencies()
-endif()
-
-ament_export_dependencies(${dependencies})
-ament_package()
+install(DIRECTORY launch config
+  DESTINATION ${CATKIN_PACKAGE_SHARE_DESTINATION}
+)

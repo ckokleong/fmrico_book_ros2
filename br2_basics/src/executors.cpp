@@ -12,72 +12,59 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-#include "rclcpp/rclcpp.hpp"
+#include "ros/ros.h"
+#include "std_msgs/Int32.h"
 
-#include "std_msgs/msg/int32.hpp"
-
-using namespace std::chrono_literals;
-using std::placeholders::_1;
-
-class PublisherNode : public rclcpp::Node
+class PublisherNode
 {
 public:
   PublisherNode()
-  : Node("publisher_node")
   {
-    publisher_ = create_publisher<std_msgs::msg::Int32>("int_topic", 10);
-    timer_ = create_wall_timer(
-      500ms, std::bind(&PublisherNode::timer_callback, this));
+    publisher_ = nh_.advertise<std_msgs::Int32>("int_topic", 10);
+    timer_ = nh_.createTimer(
+      ros::Duration(0.5), &PublisherNode::timer_callback, this);
   }
 
-  void timer_callback()
+  void timer_callback(const ros::TimerEvent &)
   {
     message_.data += 1;
-    publisher_->publish(message_);
+    publisher_.publish(message_);
   }
 
 private:
-  rclcpp::Publisher<std_msgs::msg::Int32>::SharedPtr publisher_;
-  rclcpp::TimerBase::SharedPtr timer_;
-  std_msgs::msg::Int32 message_;
+  ros::NodeHandle nh_;
+  ros::Publisher publisher_;
+  ros::Timer timer_;
+  std_msgs::Int32 message_;
 };
 
-class SubscriberNode : public rclcpp::Node
+class SubscriberNode
 {
 public:
   SubscriberNode()
-  : Node("subscriber_node")
   {
-    subscriber_ = create_subscription<std_msgs::msg::Int32>(
-      "int_topic", 10,
-      std::bind(&SubscriberNode::callback, this, _1));
+    subscriber_ = nh_.subscribe("int_topic", 10,
+      &SubscriberNode::callback, this);
   }
 
-  void callback(const std_msgs::msg::Int32::SharedPtr msg)
+  void callback(const std_msgs::Int32::ConstPtr & msg)
   {
-    RCLCPP_INFO(get_logger(), "Hello %d", msg->data);
+    ROS_INFO("Hello %d", msg->data);
   }
 
 private:
-  rclcpp::Subscription<std_msgs::msg::Int32>::SharedPtr subscriber_;
+  ros::NodeHandle nh_;
+  ros::Subscriber subscriber_;
 };
 
 int main(int argc, char * argv[])
 {
-  rclcpp::init(argc, argv);
+  ros::init(argc, argv, "executors_node");
 
-  auto node_pub = std::make_shared<PublisherNode>();
-  auto node_sub = std::make_shared<SubscriberNode>();
+  PublisherNode pub_node;
+  SubscriberNode sub_node;
 
-  rclcpp::executors::SingleThreadedExecutor executor;
-  // rclcpp::executors::MultiThreadedExecutor executor(
-  //   rclcpp::executor::ExecutorArgs(), 8);
+  ros::spin();
 
-  executor.add_node(node_pub);
-  executor.add_node(node_sub);
-
-  executor.spin();
-
-  rclcpp::shutdown();
   return 0;
 }

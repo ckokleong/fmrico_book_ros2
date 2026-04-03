@@ -1,0 +1,4 @@
+<launch>
+  <node pkg="br2_basics" type="publisher" name="publisher_node" output="screen"/>
+  <node pkg="br2_basics" type="subscriber_class" name="subscriber_node" output="screen"/>
+</launch>

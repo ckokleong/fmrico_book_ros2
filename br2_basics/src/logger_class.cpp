@@ -12,39 +12,36 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-#include "rclcpp/rclcpp.hpp"
+#include "ros/ros.h"
 
-using namespace std::chrono_literals;
-
-class LoggerNode : public rclcpp::Node
+class LoggerNode
 {
 public:
   LoggerNode()
-  : Node("logger_node")
+  : counter_(0)
   {
-    counter_ = 0;
-    timer_ = create_wall_timer(
-      500ms, std::bind(&LoggerNode::timer_callback, this));
+    timer_ = nh_.createTimer(
+      ros::Duration(0.5), &LoggerNode::timer_callback, this);
   }
 
-  void timer_callback()
+  void timer_callback(const ros::TimerEvent &)
   {
-    RCLCPP_INFO(get_logger(), "Hello %d", counter_++);
+    ROS_INFO("Hello %d", counter_++);
   }
 
 private:
-  rclcpp::TimerBase::SharedPtr timer_;
+  ros::NodeHandle nh_;
+  ros::Timer timer_;
   int counter_;
 };
 
 int main(int argc, char * argv[])
 {
-  rclcpp::init(argc, argv);
+  ros::init(argc, argv, "logger_node");
 
-  auto node = std::make_shared<LoggerNode>();
+  LoggerNode node;
 
-  rclcpp::spin(node);
+  ros::spin();
 
-  rclcpp::shutdown();
   return 0;
 }

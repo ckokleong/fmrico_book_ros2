@@ -15,37 +15,33 @@
 #include <vector>
 #include <string>
 
-#include "rclcpp/rclcpp.hpp"
+#include "ros/ros.h"
 
-class LocalizationNode : public rclcpp::Node
+class LocalizationNode
 {
 public:
   LocalizationNode()
-  : Node("localization_node")
+  : nh_("~")
   {
-    declare_parameter("number_particles", 200);
-    declare_parameter("topics", std::vector<std::string>());
-    declare_parameter("topic_types", std::vector<std::string>());
+    nh_.param<int>("number_particles", num_particles_, 200);
+    ROS_INFO_STREAM("Number of particles: " << num_particles_);
 
-    get_parameter("number_particles", num_particles_);
-    RCLCPP_INFO_STREAM(get_logger(), "Number of particles: " << num_particles_);
-
-    get_parameter("topics", topics_);
-    get_parameter("topic_types", topic_types_);
+    nh_.getParam("topics", topics_);
+    nh_.getParam("topic_types", topic_types_);
 
     if (topics_.size() != topic_types_.size()) {
-      RCLCPP_ERROR(
-        get_logger(), "Number of topics (%zu) != number of types (%zu)",
+      ROS_ERROR("Number of topics (%zu) != number of types (%zu)",
         topics_.size(), topic_types_.size());
     } else {
-      RCLCPP_INFO_STREAM(get_logger(), "Number of topics: " << topics_.size());
+      ROS_INFO_STREAM("Number of topics: " << topics_.size());
       for (size_t i = 0; i < topics_.size(); i++) {
-        RCLCPP_INFO_STREAM(get_logger(), "\t" << topics_[i] << "\t - " << topic_types_[i]);
+        ROS_INFO_STREAM("\t" << topics_[i] << "\t - " << topic_types_[i]);
       }
     }
   }
 
 private:
+  ros::NodeHandle nh_;
   int num_particles_;
   std::vector<std::string> topics_;
   std::vector<std::string> topic_types_;
@@ -53,12 +49,11 @@ private:
 
 int main(int argc, char * argv[])
 {
-  rclcpp::init(argc, argv);
+  ros::init(argc, argv, "localization_node");
 
-  auto node = std::make_shared<LocalizationNode>();
+  LocalizationNode node;
 
-  rclcpp::spin(node);
+  ros::spin();
 
-  rclcpp::shutdown();
   return 0;
 }

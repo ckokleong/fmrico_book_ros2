@@ -1,0 +1,7 @@
+<launch>
+  <node pkg="br2_basics" type="param_reader" name="localization_node" output="screen">
+    <param name="number_particles" value="300"/>
+    <rosparam param="topics">[scan, image]</rosparam>
+    <rosparam param="topic_types">[sensor_msgs/LaserScan, sensor_msgs/Image]</rosparam>
+  </node>
+</launch>

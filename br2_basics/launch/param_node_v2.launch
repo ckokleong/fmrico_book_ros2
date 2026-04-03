@@ -1,0 +1,5 @@
+<launch>
+  <node pkg="br2_basics" type="param_reader" name="localization_node" output="screen">
+    <rosparam command="load" file="$(find br2_basics)/config/params.yaml"/>
+  </node>
+</launch>

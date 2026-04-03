@@ -1,0 +1,3 @@
+<launch>
+  <include file="$(find br2_basics)/launch/pub_sub_v2.launch"/>
+</launch>

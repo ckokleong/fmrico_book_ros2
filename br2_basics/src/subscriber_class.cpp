@@ -12,39 +12,35 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-#include "rclcpp/rclcpp.hpp"
-#include "std_msgs/msg/int32.hpp"
+#include "ros/ros.h"
+#include "std_msgs/Int32.h"
 
-using std::placeholders::_1;
-
-class SubscriberNode : public rclcpp::Node
+class SubscriberNode
 {
 public:
   SubscriberNode()
-  : Node("subscriber_node")
   {
-    subscriber_ = create_subscription<std_msgs::msg::Int32>(
-      "int_topic", 10,
-      std::bind(&SubscriberNode::callback, this, _1));
+    subscriber_ = nh_.subscribe("int_topic", 10,
+      &SubscriberNode::callback, this);
   }
 
-  void callback(const std_msgs::msg::Int32::SharedPtr msg)
+  void callback(const std_msgs::Int32::ConstPtr & msg)
   {
-    RCLCPP_INFO(get_logger(), "Hello %d", msg->data);
+    ROS_INFO("Hello %d", msg->data);
   }
 
 private:
-  rclcpp::Subscription<std_msgs::msg::Int32>::SharedPtr subscriber_;
+  ros::NodeHandle nh_;
+  ros::Subscriber subscriber_;
 };
 
 int main(int argc, char * argv[])
 {
-  rclcpp::init(argc, argv);
+  ros::init(argc, argv, "subscriber_node");
 
-  auto node = std::make_shared<SubscriberNode>();
+  SubscriberNode node;
 
-  rclcpp::spin(node);
+  ros::spin();
 
-  rclcpp::shutdown();
   return 0;
 }

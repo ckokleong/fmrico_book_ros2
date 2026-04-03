@@ -12,25 +12,22 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-#include "rclcpp/rclcpp.hpp"
-
-using namespace std::chrono_literals;
+#include "ros/ros.h"
 
 int main(int argc, char * argv[])
 {
-  rclcpp::init(argc, argv);
+  ros::init(argc, argv, "logger_node");
 
-  auto node = rclcpp::Node::make_shared("logger_node");
+  ros::NodeHandle nh;
 
-  rclcpp::Rate loop_rate(500ms);
+  ros::Rate loop_rate(2);
   int counter = 0;
-  while (rclcpp::ok()) {
-    RCLCPP_INFO(node->get_logger(), "Hello %d", counter++);
+  while (ros::ok()) {
+    ROS_INFO("Hello %d", counter++);
 
-    rclcpp::spin_some(node);
+    ros::spinOnce();
     loop_rate.sleep();
   }
 
-  rclcpp::shutdown();
   return 0;
 }
