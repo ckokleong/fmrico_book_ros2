@@ -13,28 +13,20 @@
 # limitations under the License.
 
 
+import rospy
 from geometry_msgs.msg import Twist
-
-import rclpy
-from rclpy.duration import Duration
-from rclpy.node import Node
-from rclpy.qos import qos_profile_sensor_data
-from rclpy.time import Time
-
 from sensor_msgs.msg import LaserScan
 
 
-class BumpGoNode(Node):
+class BumpGoNode(object):
 
     def __init__(self):
-        super().__init__('bump_go')
-
         self.FORWARD = 0
         self.BACK = 1
         self.TURN = 2
         self.STOP = 3
         self.state = self.FORWARD
-        self.state_ts = self.get_clock().now()
+        self.state_ts = rospy.Time.now()
 
         self.TURNING_TIME = 2.0
         self.BACKING_TIME = 2.0
@@ -46,19 +38,16 @@ class BumpGoNode(Node):
 
         self.last_scan = None
 
-        self.scan_sub = self.create_subscription(
-            LaserScan,
-            'input_scan',
-            self.scan_callback,
-            qos_profile_sensor_data)
+        self.scan_sub = rospy.Subscriber(
+            'input_scan', LaserScan, self.scan_callback, queue_size=1)
 
-        self.vel_pub = self.create_publisher(Twist, 'output_vel', 10)
-        self.timer = self.create_timer(0.05, self.control_cycle)
+        self.vel_pub = rospy.Publisher('output_vel', Twist, queue_size=10)
+        self.timer = rospy.Timer(rospy.Duration(0.05), self.control_cycle)
 
     def scan_callback(self, msg):
         self.last_scan = msg
 
-    def control_cycle(self):
+    def control_cycle(self, event):
         if self.last_scan is None:
             return
 
@@ -92,38 +81,33 @@ class BumpGoNode(Node):
 
     def go_state(self, new_state):
         self.state = new_state
-        self.state_ts = self.get_clock().now()
+        self.state_ts = rospy.Time.now()
 
     def check_forward_2_back(self):
-        pos = round(len(self.last_scan.ranges) / 2)
+        pos = len(self.last_scan.ranges) // 2
         return self.last_scan.ranges[pos] < self.OBSTACLE_DISTANCE
 
     def check_forward_2_stop(self):
-        elapsed = self.get_clock().now() - Time.from_msg(self.last_scan.header.stamp)
-        return elapsed > Duration(seconds=self.SCAN_TIMEOUT)
+        elapsed = rospy.Time.now() - self.last_scan.header.stamp
+        return elapsed > rospy.Duration(self.SCAN_TIMEOUT)
 
     def check_stop_2_forward(self):
-        elapsed = self.get_clock().now() - Time.from_msg(self.last_scan.header.stamp)
-        return elapsed < Duration(seconds=self.SCAN_TIMEOUT)
+        elapsed = rospy.Time.now() - self.last_scan.header.stamp
+        return elapsed < rospy.Duration(self.SCAN_TIMEOUT)
 
     def check_back_2_turn(self):
-        elapsed = self.get_clock().now() - self.state_ts
-        return elapsed > Duration(seconds=self.BACKING_TIME)
+        elapsed = rospy.Time.now() - self.state_ts
+        return elapsed > rospy.Duration(self.BACKING_TIME)
 
     def check_turn_2_forward(self):
-        elapsed = self.get_clock().now() - self.state_ts
-        return elapsed > Duration(seconds=self.TURNING_TIME)
+        elapsed = rospy.Time.now() - self.state_ts
+        return elapsed > rospy.Duration(self.TURNING_TIME)
 
 
-def main(args=None):
-    rclpy.init(args=args)
-
+def main():
+    rospy.init_node('bump_go')
     bump_go_node = BumpGoNode()
-
-    rclpy.spin(bump_go_node)
-
-    bump_go_node.destroy_node()
-    rclpy.shutdown()
+    rospy.spin()
 
 
 if __name__ == '__main__':
