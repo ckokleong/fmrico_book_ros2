@@ -2,7 +2,7 @@
 <package format="2">
   <name>br2_deep_ros</name>
   <version>0.2.0</version>
-  <description>Basic nodes for ROS1 introduction (ported from ROS2)</description>
+  <description>Basic nodes for ROS introduction (ROS1 Noetic port)</description>
   <maintainer email="fmrico@gmail.com">fmrico</maintainer>
   <license>Apache License, Version 2.0</license>
 
@@ -12,6 +12,7 @@
   <depend>std_msgs</depend>
   <depend>sensor_msgs</depend>
   <depend>vision_msgs</depend>
+  <depend>yaets</depend>
 
   <export>
   </export>
