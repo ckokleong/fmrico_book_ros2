@@ -20,16 +20,15 @@
 #include "behaviortree_cpp_v3/utils/shared_library.h"
 #include "behaviortree_cpp_v3/loggers/bt_zmq_publisher.h"
 
-#include "ament_index_cpp/get_package_share_directory.hpp"
-
-#include "rclcpp/rclcpp.hpp"
+#include <ros/ros.h>
+#include <ros/package.h>
 
 
 int main(int argc, char * argv[])
 {
-  rclcpp::init(argc, argv);
+  ros::init(argc, argv, "patrolling_node");
 
-  auto node = rclcpp::Node::make_shared("patrolling_node");
+  ros::NodeHandle nh;
 
   BT::BehaviorTreeFactory factory;
   BT::SharedLibrary loader;
@@ -41,25 +40,25 @@ int main(int argc, char * argv[])
   factory.registerFromPlugin(loader.getOSName("br2_get_waypoint_bt_node"));
   factory.registerFromPlugin(loader.getOSName("br2_track_objects_bt_node"));
 
-  std::string pkgpath = ament_index_cpp::get_package_share_directory("br2_bt_patrolling");
+  std::string pkgpath = ros::package::getPath("br2_bt_patrolling");
   std::string xml_file = pkgpath + "/behavior_tree_xml/patrolling.xml";
 
   auto blackboard = BT::Blackboard::create();
-  blackboard->set("node", node);
+  blackboard->set("node", nh);
   BT::Tree tree = factory.createTreeFromFile(xml_file, blackboard);
 
   auto publisher_zmq = std::make_shared<BT::PublisherZMQ>(tree, 10, 2666, 2667);
 
-  rclcpp::Rate rate(10);
+  ros::Rate rate(10);
 
   bool finish = false;
-  while (!finish && rclcpp::ok()) {
+  while (!finish && ros::ok()) {
     finish = tree.rootNode()->executeTick() == BT::NodeStatus::SUCCESS;
 
-    rclcpp::spin_some(node);
+    ros::spinOnce();
     rate.sleep();
   }
 
-  rclcpp::shutdown();
+  ros::shutdown();
   return 0;
 }

@@ -21,9 +21,9 @@
 #include "behaviortree_cpp_v3/behavior_tree.h"
 #include "behaviortree_cpp_v3/bt_factory.h"
 
-#include "geometry_msgs/msg/twist.hpp"
+#include <geometry_msgs/Twist.h>
 
-#include "rclcpp/rclcpp.hpp"
+#include <ros/ros.h>
 
 namespace br2_bt_patrolling
 {
@@ -42,7 +42,7 @@ public:
     return BT::PortsList({});
   }
 
-  void vel_callback(const geometry_msgs::msg::Twist::SharedPtr msg);
+  void vel_callback(const geometry_msgs::Twist::ConstPtr & msg);
 
   const float DECAY_LEVEL = 0.5;  // 0.5 * |vel| * dt
   const float EPSILON = 0.01;  // 0.001 * dt
@@ -51,10 +51,10 @@ public:
 private:
   void update_battery();
 
-  rclcpp::Node::SharedPtr node_;
-  rclcpp::Time last_reading_time_;
-  geometry_msgs::msg::Twist last_twist_;
-  rclcpp::Subscription<geometry_msgs::msg::Twist>::SharedPtr vel_sub_;
+  ros::NodeHandle nh_;
+  ros::Time last_reading_time_;
+  geometry_msgs::Twist last_twist_;
+  ros::Subscriber vel_sub_;
 };
 
 }  // namespace br2_bt_patrolling

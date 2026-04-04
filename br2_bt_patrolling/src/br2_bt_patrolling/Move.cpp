@@ -19,8 +19,8 @@
 
 #include "br2_bt_patrolling/Move.hpp"
 
-#include "geometry_msgs/msg/pose_stamped.hpp"
-#include "nav2_msgs/action/navigate_to_pose.hpp"
+#include <geometry_msgs/PoseStamped.h>
+#include <move_base_msgs/MoveBaseAction.h>
 
 #include "behaviortree_cpp_v3/behavior_tree.h"
 
@@ -31,7 +31,7 @@ Move::Move(
   const std::string & xml_tag_name,
   const std::string & action_name,
   const BT::NodeConfiguration & conf)
-: br2_bt_patrolling::BtActionNode<nav2_msgs::action::NavigateToPose>(xml_tag_name, action_name,
+: br2_bt_patrolling::BtActionNode<move_base_msgs::MoveBaseAction>(xml_tag_name, action_name,
     conf)
 {
 }
@@ -39,16 +39,16 @@ Move::Move(
 void
 Move::on_tick()
 {
-  geometry_msgs::msg::PoseStamped goal;
+  geometry_msgs::PoseStamped goal;
   getInput("goal", goal);
 
-  goal_.pose = goal;
+  goal_.target_pose = goal;
 }
 
 BT::NodeStatus
 Move::on_success()
 {
-  RCLCPP_INFO(node_->get_logger(), "navigation Suceeded");
+  ROS_INFO("navigation Succeeded");
 
   return BT::NodeStatus::SUCCESS;
 }
@@ -63,7 +63,7 @@ BT_REGISTER_NODES(factory)
     [](const std::string & name, const BT::NodeConfiguration & config)
     {
       return std::make_unique<br2_bt_patrolling::Move>(
-        name, "navigate_to_pose", config);
+        name, "move_base", config);
     };
 
   factory.registerBuilder<br2_bt_patrolling::Move>(

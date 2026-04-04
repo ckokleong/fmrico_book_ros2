@@ -20,31 +20,28 @@
 
 #include "behaviortree_cpp_v3/behavior_tree.h"
 
-#include "geometry_msgs/msg/twist.hpp"
+#include <geometry_msgs/Twist.h>
 
-#include "rclcpp/rclcpp.hpp"
+#include <ros/ros.h>
 
 namespace br2_bt_patrolling
 {
-
-using namespace std::chrono_literals;
-using namespace std::placeholders;
 
 BatteryChecker::BatteryChecker(
   const std::string & xml_tag_name,
   const BT::NodeConfiguration & conf)
 : BT::ConditionNode(xml_tag_name, conf)
 {
-  config().blackboard->get("node", node_);
+  config().blackboard->get("node", nh_);
 
-  vel_sub_ = node_->create_subscription<geometry_msgs::msg::Twist>(
-    "/output_vel", 100, std::bind(&BatteryChecker::vel_callback, this, _1));
+  vel_sub_ = nh_.subscribe(
+    "/output_vel", 100, &BatteryChecker::vel_callback, this);
 
-  last_reading_time_ = node_->now();
+  last_reading_time_ = ros::Time::now();
 }
 
 void
-BatteryChecker::vel_callback(const geometry_msgs::msg::Twist::SharedPtr msg)
+BatteryChecker::vel_callback(const geometry_msgs::Twist::ConstPtr & msg)
 {
   last_twist_ = *msg;
 }
@@ -57,8 +54,8 @@ BatteryChecker::update_battery()
     battery_level = 100.0f;
   }
 
-  float dt = (node_->now() - last_reading_time_).seconds();
-  last_reading_time_ = node_->now();
+  float dt = (ros::Time::now() - last_reading_time_).toSec();
+  last_reading_time_ = ros::Time::now();
 
   float vel = sqrt(
     last_twist_.linear.x * last_twist_.linear.x +

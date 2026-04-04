@@ -19,31 +19,32 @@
 #include <string>
 
 #include "behaviortree_cpp_v3/action_node.h"
-#include "rclcpp/rclcpp.hpp"
-#include "rclcpp_action/rclcpp_action.hpp"
+#include <ros/ros.h>
+#include <actionlib/client/simple_action_client.h>
 
 namespace br2_bt_patrolling
 {
 
-using namespace std::chrono_literals;  // NOLINT
-
-template<class ActionT, class NodeT = rclcpp::Node>
+template<class ActionT>
 class BtActionNode : public BT::ActionNodeBase
 {
 public:
+  using GoalType = typename ActionT::_action_goal_type::_goal_type;
+  using ResultType = typename ActionT::_action_result_type::_result_type;
+  using FeedbackType = typename ActionT::_action_feedback_type::_feedback_type;
+  using ActionClientT = actionlib::SimpleActionClient<ActionT>;
+
   BtActionNode(
     const std::string & xml_tag_name,
     const std::string & action_name,
     const BT::NodeConfiguration & conf)
-  : BT::ActionNodeBase(xml_tag_name, conf), action_name_(action_name)
+  : BT::ActionNodeBase(xml_tag_name, conf), action_name_(action_name),
+    result_state_(actionlib::SimpleClientGoalState::PENDING)
   {
-    node_ = config().blackboard->get<typename NodeT::SharedPtr>("node");
+    nh_ = config().blackboard->get<ros::NodeHandle>("node");
 
-    server_timeout_ = 1s;
-
-    // Initialize the input and output messages
-    goal_ = typename ActionT::Goal();
-    result_ = typename rclcpp_action::ClientGoalHandle<ActionT>::WrappedResult();
+    // Initialize the goal message
+    goal_ = GoalType();
 
     std::string remapped_action_name;
     if (getInput("server_name", remapped_action_name)) {
@@ -51,8 +52,8 @@ public:
     }
     createActionClient(action_name_);
 
-    // Give the derive class a chance to do any initialization
-    RCLCPP_INFO(node_->get_logger(), "\"%s\" BtActionNode initialized", xml_tag_name.c_str());
+    // Give the derived class a chance to do any initialization
+    ROS_INFO("\"%s\" BtActionNode initialized", xml_tag_name.c_str());
   }
 
   BtActionNode() = delete;
@@ -61,15 +62,15 @@ public:
   {
   }
 
-  // Create instance of an action server
+  // Create instance of an action client
   void createActionClient(const std::string & action_name)
   {
     // Now that we have the ROS node to use, create the action client for this BT action
-    action_client_ = rclcpp_action::create_client<ActionT>(node_, action_name);
+    action_client_ = std::make_shared<ActionClientT>(action_name, true);
 
     // Make sure the server is actually there before continuing
-    RCLCPP_INFO(node_->get_logger(), "Waiting for \"%s\" action server", action_name.c_str());
-    action_client_->wait_for_action_server();
+    ROS_INFO("Waiting for \"%s\" action server", action_name.c_str());
+    action_client_->waitForServer();
   }
 
   // Any subclass of BtActionNode that accepts parameters must provide a providedPorts method
@@ -111,14 +112,14 @@ public:
     return BT::NodeStatus::SUCCESS;
   }
 
-  // Called when a the action is aborted. By default, the node will return FAILURE.
+  // Called when the action is aborted. By default, the node will return FAILURE.
   // The user may override it to return another value, instead.
   virtual BT::NodeStatus on_aborted()
   {
     return BT::NodeStatus::FAILURE;
   }
 
-  // Called when a the action is cancelled. By default, the node will return SUCCESS.
+  // Called when the action is cancelled. By default, the node will return SUCCESS.
   // The user may override it to return another value, instead.
   virtual BT::NodeStatus on_cancelled()
   {
@@ -142,56 +143,45 @@ public:
     }
 
     // The following code corresponds to the "RUNNING" loop
-    if (rclcpp::ok() && !goal_result_available_) {
+    if (ros::ok() && !goal_result_available_) {
       // user defined callback. May modify the value of "goal_updated_"
       on_wait_for_result();
 
-      auto goal_status = goal_handle_->get_status();
-      if (goal_updated_ && (goal_status == action_msgs::msg::GoalStatus::STATUS_EXECUTING ||
-        goal_status == action_msgs::msg::GoalStatus::STATUS_ACCEPTED))
+      auto goal_state = action_client_->getState();
+      if (goal_updated_ && (goal_state == actionlib::SimpleClientGoalState::ACTIVE ||
+        goal_state == actionlib::SimpleClientGoalState::PENDING))
       {
         goal_updated_ = false;
         on_new_goal_received();
       }
 
-      rclcpp::spin_some(node_->get_node_base_interface());
+      ros::spinOnce();
 
-      // check if, after invoking spin_some(), we finally received the result
+      // check if, after invoking spinOnce(), we finally received the result
       if (!goal_result_available_) {
         // Yield this Action, returning RUNNING
         return BT::NodeStatus::RUNNING;
       }
     }
 
-    switch (result_.code) {
-      case rclcpp_action::ResultCode::SUCCEEDED:
-        return on_success();
-
-      case rclcpp_action::ResultCode::ABORTED:
-        return on_aborted();
-
-      case rclcpp_action::ResultCode::CANCELED:
-        return on_cancelled();
-
-      default:
-        throw std::logic_error("BtActionNode::Tick: invalid status value");
+    if (result_state_ == actionlib::SimpleClientGoalState::SUCCEEDED) {
+      return on_success();
+    } else if (result_state_ == actionlib::SimpleClientGoalState::ABORTED) {
+      return on_aborted();
+    } else if (result_state_ == actionlib::SimpleClientGoalState::PREEMPTED ||
+               result_state_ == actionlib::SimpleClientGoalState::RECALLED) {
+      return on_cancelled();
+    } else {
+      throw std::logic_error("BtActionNode::Tick: invalid status value");
     }
   }
 
   // The other (optional) override required by a BT action. In this case, we
-  // make sure to cancel the ROS2 action if it is still running.
+  // make sure to cancel the ROS action if it is still running.
   void halt() override
   {
     if (should_cancel_goal()) {
-      auto future_cancel = action_client_->async_cancel_goal(goal_handle_);
-      if (rclcpp::spin_until_future_complete(
-          node_->get_node_base_interface(), future_cancel, server_timeout_) !=
-        rclcpp::FutureReturnCode::SUCCESS)
-      {
-        RCLCPP_ERROR(
-          node_->get_logger(),
-          "Failed to cancel action server for %s", action_name_.c_str());
-      }
+      action_client_->cancelGoal();
     }
 
     setStatus(BT::NodeStatus::IDLE);
@@ -205,43 +195,27 @@ protected:
       return false;
     }
 
-    rclcpp::spin_some(node_->get_node_base_interface());
-    auto status = goal_handle_->get_status();
+    ros::spinOnce();
+    auto state = action_client_->getState();
 
     // Check if the goal is still executing
-    return status == action_msgs::msg::GoalStatus::STATUS_ACCEPTED ||
-           status == action_msgs::msg::GoalStatus::STATUS_EXECUTING;
+    return state == actionlib::SimpleClientGoalState::ACTIVE ||
+           state == actionlib::SimpleClientGoalState::PENDING;
   }
 
 
   void on_new_goal_received()
   {
     goal_result_available_ = false;
-    auto send_goal_options = typename rclcpp_action::Client<ActionT>::SendGoalOptions();
-    send_goal_options.result_callback =
-      [this](const typename rclcpp_action::ClientGoalHandle<ActionT>::WrappedResult & result) {
-        // TODO(#1652): a work around until rcl_action interface is updated
-        // if goal ids are not matched, the older goal call this callback so ignore the result
-        // if matched, it must be processed (including aborted)
-        if (this->goal_handle_->get_goal_id() == result.goal_id) {
-          goal_result_available_ = true;
-          result_ = result;
-        }
-      };
+    action_client_->sendGoal(goal_,
+      boost::bind(&BtActionNode::doneCb, this, _1, _2));
+  }
 
-    auto future_goal_handle = action_client_->async_send_goal(goal_, send_goal_options);
-
-    if (rclcpp::spin_until_future_complete(
-        node_->get_node_base_interface(), future_goal_handle, server_timeout_) !=
-      rclcpp::FutureReturnCode::SUCCESS)
-    {
-      throw std::runtime_error("send_goal failed");
-    }
-
-    goal_handle_ = future_goal_handle.get();
-    if (!goal_handle_) {
-      throw std::runtime_error("Goal was rejected by the action server");
-    }
+  void doneCb(const actionlib::SimpleClientGoalState & state,
+              const typename ResultType::ConstPtr & /*result*/)
+  {
+    goal_result_available_ = true;
+    result_state_ = state;
   }
 
   void increment_recovery_count()
@@ -253,17 +227,16 @@ protected:
   }
 
   std::string action_name_;
-  typename std::shared_ptr<rclcpp_action::Client<ActionT>> action_client_;
+  std::shared_ptr<ActionClientT> action_client_;
 
-  // All ROS2 actions have a goal and a result
-  typename ActionT::Goal goal_;
+  // All ROS actions have a goal and a result
+  GoalType goal_;
   bool goal_updated_{false};
   bool goal_result_available_{false};
-  typename rclcpp_action::ClientGoalHandle<ActionT>::SharedPtr goal_handle_;
-  typename rclcpp_action::ClientGoalHandle<ActionT>::WrappedResult result_;
+  actionlib::SimpleClientGoalState result_state_;
 
-  // The node that will be used for any ROS operations
-  typename NodeT::SharedPtr node_;
+  // The node handle for ROS operations
+  ros::NodeHandle nh_;
 
   // The timeout value while waiting for response from a server when a
   // new action goal is sent or canceled

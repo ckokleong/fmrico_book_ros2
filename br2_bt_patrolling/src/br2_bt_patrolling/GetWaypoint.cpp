@@ -20,9 +20,9 @@
 
 #include "behaviortree_cpp_v3/behavior_tree.h"
 
-#include "geometry_msgs/msg/pose_stamped.hpp"
+#include <geometry_msgs/PoseStamped.h>
 
-#include "rclcpp/rclcpp.hpp"
+#include <ros/ros.h>
 
 namespace br2_bt_patrolling
 {
@@ -34,10 +34,10 @@ GetWaypoint::GetWaypoint(
   const BT::NodeConfiguration & conf)
 : BT::ActionNodeBase(xml_tag_name, conf)
 {
-  rclcpp::Node::SharedPtr node;
-  config().blackboard->get("node", node);
+  ros::NodeHandle nh;
+  config().blackboard->get("node", nh);
 
-  geometry_msgs::msg::PoseStamped wp;
+  geometry_msgs::PoseStamped wp;
   wp.header.frame_id = "map";
   wp.pose.orientation.w = 1.0;
 

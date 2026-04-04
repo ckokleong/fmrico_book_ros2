@@ -21,7 +21,7 @@
 #include "behaviortree_cpp_v3/behavior_tree.h"
 #include "behaviortree_cpp_v3/bt_factory.h"
 
-#include "geometry_msgs/msg/pose_stamped.hpp"
+#include <geometry_msgs/PoseStamped.h>
 
 namespace br2_bt_patrolling
 {
@@ -41,13 +41,13 @@ public:
     return BT::PortsList(
       {
         BT::InputPort<std::string>("wp_id"),
-        BT::OutputPort<geometry_msgs::msg::PoseStamped>("waypoint")
+        BT::OutputPort<geometry_msgs::PoseStamped>("waypoint")
       });
   }
 
 private:
-  geometry_msgs::msg::PoseStamped recharge_point_;
-  std::vector<geometry_msgs::msg::PoseStamped> waypoints_;
+  geometry_msgs::PoseStamped recharge_point_;
+  std::vector<geometry_msgs::PoseStamped> waypoints_;
   static int current_;
 };
 

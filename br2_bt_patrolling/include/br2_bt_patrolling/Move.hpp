@@ -17,8 +17,8 @@
 
 #include <string>
 
-#include "geometry_msgs/msg/pose_stamped.hpp"
-#include "nav2_msgs/action/navigate_to_pose.hpp"
+#include <geometry_msgs/PoseStamped.h>
+#include <move_base_msgs/MoveBaseAction.h>
 
 #include "br2_bt_patrolling/ctrl_support/BTActionNode.hpp"
 #include "behaviortree_cpp_v3/behavior_tree.h"
@@ -27,7 +27,7 @@
 namespace br2_bt_patrolling
 {
 
-class Move : public br2_bt_patrolling::BtActionNode<nav2_msgs::action::NavigateToPose>
+class Move : public br2_bt_patrolling::BtActionNode<move_base_msgs::MoveBaseAction>
 {
 public:
   explicit Move(
@@ -41,7 +41,7 @@ public:
   static BT::PortsList providedPorts()
   {
     return {
-      BT::InputPort<geometry_msgs::msg::PoseStamped>("goal")
+      BT::InputPort<geometry_msgs::PoseStamped>("goal")
     };
   }
 };

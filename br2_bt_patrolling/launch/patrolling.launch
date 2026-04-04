@@ -1,0 +1,13 @@
+<!-- Copyright 2021 Intelligent Robotics Lab
+     Licensed under the Apache License, Version 2.0 -->
+<launch>
+
+  <include file="$(find br2_tracking)/launch/tracking.launch"/>
+
+  <node pkg="br2_bt_patrolling" type="patrolling_main" name="patrolling_node" output="screen">
+    <param name="use_sim_time" value="true"/>
+    <remap from="input_scan" to="/scan_raw"/>
+    <remap from="output_vel" to="/cmd_vel"/>
+  </node>
+
+</launch>
