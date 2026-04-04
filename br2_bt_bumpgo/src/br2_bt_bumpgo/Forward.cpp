@@ -19,30 +19,26 @@
 
 #include "behaviortree_cpp_v3/behavior_tree.h"
 
-#include "geometry_msgs/msg/twist.hpp"
-#include "rclcpp/rclcpp.hpp"
+#include "geometry_msgs/Twist.h"
+#include "ros/ros.h"
 
 namespace br2_bt_bumpgo
 {
-
-using namespace std::chrono_literals;
 
 Forward::Forward(
   const std::string & xml_tag_name,
   const BT::NodeConfiguration & conf)
 : BT::ActionNodeBase(xml_tag_name, conf)
 {
-  config().blackboard->get("node", node_);
-
-  vel_pub_ = node_->create_publisher<geometry_msgs::msg::Twist>("/output_vel", 100);
+  vel_pub_ = nh_.advertise<geometry_msgs::Twist>("/output_vel", 100);
 }
 
 BT::NodeStatus
 Forward::tick()
 {
-  geometry_msgs::msg::Twist vel_msgs;
+  geometry_msgs::Twist vel_msgs;
   vel_msgs.linear.x = 0.3;
-  vel_pub_->publish(vel_msgs);
+  vel_pub_.publish(vel_msgs);
 
   return BT::NodeStatus::RUNNING;
 }

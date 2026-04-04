@@ -20,16 +20,13 @@
 #include "behaviortree_cpp_v3/utils/shared_library.h"
 #include "behaviortree_cpp_v3/loggers/bt_zmq_publisher.h"
 
-#include "ament_index_cpp/get_package_share_directory.hpp"
-
-#include "rclcpp/rclcpp.hpp"
+#include "ros/ros.h"
 
 
 int main(int argc, char * argv[])
 {
-  rclcpp::init(argc, argv);
-
-  auto node = rclcpp::Node::make_shared("forward_node");
+  ros::init(argc, argv, "forward_node");
+  ros::NodeHandle nh;
 
   BT::BehaviorTreeFactory factory;
   BT::SharedLibrary loader;
@@ -45,18 +42,16 @@ int main(int argc, char * argv[])
     </root>)";
 
   auto blackboard = BT::Blackboard::create();
-  blackboard->set("node", node);
   BT::Tree tree = factory.createTreeFromText(xml_bt, blackboard);
 
-  rclcpp::Rate rate(10);
+  ros::Rate rate(10);
   bool finish = false;
-  while (!finish && rclcpp::ok()) {
+  while (!finish && ros::ok()) {
     finish = tree.rootNode()->executeTick() != BT::NodeStatus::RUNNING;
 
-    rclcpp::spin_some(node);
+    ros::spinOnce();
     rate.sleep();
   }
 
-  rclcpp::shutdown();
   return 0;
 }

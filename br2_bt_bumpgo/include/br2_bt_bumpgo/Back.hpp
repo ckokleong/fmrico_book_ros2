@@ -20,8 +20,8 @@
 #include "behaviortree_cpp_v3/behavior_tree.h"
 #include "behaviortree_cpp_v3/bt_factory.h"
 
-#include "geometry_msgs/msg/twist.hpp"
-#include "rclcpp/rclcpp.hpp"
+#include "geometry_msgs/Twist.h"
+#include "ros/ros.h"
 
 namespace br2_bt_bumpgo
 {
@@ -42,9 +42,9 @@ public:
   }
 
 private:
-  rclcpp::Node::SharedPtr node_;
-  rclcpp::Time start_time_;
-  rclcpp::Publisher<geometry_msgs::msg::Twist>::SharedPtr vel_pub_;
+  ros::NodeHandle nh_;
+  ros::Time start_time_;
+  ros::Publisher vel_pub_;
 };
 
 }  // namespace br2_bt_bumpgo

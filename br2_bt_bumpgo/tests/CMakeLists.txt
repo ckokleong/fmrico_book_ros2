@@ -1,14 +1,13 @@
 
-ament_add_gtest(bt_action_test bt_action_test.cpp)
-ament_target_dependencies(bt_action_test ${dependencies})
+catkin_add_gtest(bt_action_test bt_action_test.cpp)
+target_link_libraries(bt_action_test ${catkin_LIBRARIES} ${behaviortree_cpp_v3_LIBRARIES})
 
 add_executable(bt_forward bt_forward_main.cpp)
-ament_target_dependencies(bt_forward ${dependencies})
-target_link_libraries(bt_forward ${ZMQ_LIBRARIES})
+target_link_libraries(bt_forward ${catkin_LIBRARIES} ${behaviortree_cpp_v3_LIBRARIES} ${ZMQ_LIBRARIES})
 
 install(TARGETS
   bt_forward
-  ARCHIVE DESTINATION lib
-  LIBRARY DESTINATION lib
-  RUNTIME DESTINATION lib/${PROJECT_NAME}
+  ARCHIVE DESTINATION ${CATKIN_PACKAGE_LIB_DESTINATION}
+  LIBRARY DESTINATION ${CATKIN_PACKAGE_LIB_DESTINATION}
+  RUNTIME DESTINATION ${CATKIN_PACKAGE_BIN_DESTINATION}
 )
