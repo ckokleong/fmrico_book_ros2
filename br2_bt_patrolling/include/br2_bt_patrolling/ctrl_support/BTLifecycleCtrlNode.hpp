@@ -18,17 +18,20 @@
 #include <memory>
 #include <string>
 
-#include "lifecycle_msgs/srv/change_state.hpp"
-#include "lifecycle_msgs/srv/get_state.hpp"
-#include "lifecycle_msgs/msg/state.hpp"
+#include <std_srvs/SetBool.h>
+#include <std_srvs/Trigger.h>
 
 #include "behaviortree_cpp_v3/action_node.h"
-#include "rclcpp/rclcpp.hpp"
+#include <ros/ros.h>
 
 namespace br2_bt_patrolling
 {
 
-using namespace std::chrono_literals;  // NOLINT
+// State constants to replace lifecycle_msgs::msg::State
+static const uint8_t STATE_UNCONFIGURED = 0;
+static const uint8_t STATE_INACTIVE = 1;
+static const uint8_t STATE_ACTIVE = 2;
+static const uint8_t STATE_UNKNOWN = 255;
 
 class BtLifecycleCtrlNode : public BT::ActionNodeBase
 {
@@ -39,7 +42,7 @@ public:
     const BT::NodeConfiguration & conf)
   : BT::ActionNodeBase(xml_tag_name, conf), ctrl_node_name_(node_name)
   {
-    node_ = config().blackboard->get<rclcpp::Node::SharedPtr>("node");
+    nh_ = config().blackboard->get<ros::NodeHandle>("node");
   }
 
   BtLifecycleCtrlNode() = delete;
@@ -48,15 +51,16 @@ public:
   {
   }
 
-  template<typename serviceT>
-  typename rclcpp::Client<serviceT>::SharedPtr createServiceClient(const std::string & service_name)
+  template<typename ServiceT>
+  ros::ServiceClient createServiceClient(const std::string & service_name)
   {
-    auto srv = node_->create_client<serviceT>(service_name);
-    while (!srv->wait_for_service(1s)) {
-      if (!rclcpp::ok()) {
-        RCLCPP_ERROR(node_->get_logger(), "Interrupted while waiting for the service. Exiting.");
+    auto srv = nh_.serviceClient<ServiceT>(service_name);
+    while (!srv.waitForExistence(ros::Duration(1.0))) {
+      if (!ros::ok()) {
+        ROS_ERROR("Interrupted while waiting for the service. Exiting.");
+        break;
       } else {
-        RCLCPP_INFO(node_->get_logger(), "service not available, waiting again...");
+        ROS_INFO("service not available, waiting again...");
       }
     }
     return srv;
@@ -77,15 +81,15 @@ public:
   BT::NodeStatus tick() override
   {
     if (status() == BT::NodeStatus::IDLE) {
-      change_state_client_ = createServiceClient<lifecycle_msgs::srv::ChangeState>(
-        ctrl_node_name_ + "/change_state");
-      get_state_client_ = createServiceClient<lifecycle_msgs::srv::GetState>(
+      set_active_client_ = createServiceClient<std_srvs::SetBool>(
+        ctrl_node_name_ + "/set_active");
+      get_state_client_ = createServiceClient<std_srvs::Trigger>(
         ctrl_node_name_ + "/get_state");
     }
 
-    if (ctrl_node_state_ != lifecycle_msgs::msg::State::PRIMARY_STATE_ACTIVE) {
+    if (ctrl_node_state_ != STATE_ACTIVE) {
       ctrl_node_state_ = get_state();
-      set_state(lifecycle_msgs::msg::State::PRIMARY_STATE_ACTIVE);
+      set_state(STATE_ACTIVE);
     }
 
     on_tick();
@@ -95,8 +99,8 @@ public:
 
   void halt() override
   {
-    if (ctrl_node_state_ == lifecycle_msgs::msg::State::PRIMARY_STATE_ACTIVE) {
-      set_state(lifecycle_msgs::msg::State::PRIMARY_STATE_INACTIVE);
+    if (ctrl_node_state_ == STATE_ACTIVE) {
+      set_state(STATE_INACTIVE);
     }
     setStatus(BT::NodeStatus::IDLE);
   }
@@ -104,39 +108,37 @@ public:
   // Get the state of the controlled node
   uint8_t get_state()
   {
-    auto request = std::make_shared<lifecycle_msgs::srv::GetState::Request>();
-    auto result = get_state_client_->async_send_request(request);
-
-    if (rclcpp::spin_until_future_complete(node_, result) !=
-      rclcpp::FutureReturnCode::SUCCESS)
-    {
-      lifecycle_msgs::msg::State get_state;
-
-      RCLCPP_ERROR(node_->get_logger(), "Failed to call get_state service");
-      return lifecycle_msgs::msg::State::PRIMARY_STATE_UNKNOWN;
+    std_srvs::Trigger srv;
+    if (get_state_client_.call(srv)) {
+      try {
+        return static_cast<uint8_t>(std::stoi(srv.response.message));
+      } catch (...) {
+        ROS_ERROR("Failed to parse state from get_state service");
+        return STATE_UNKNOWN;
+      }
     }
 
-    return result.get()->current_state.id;
+    ROS_ERROR("Failed to call get_state service");
+    return STATE_UNKNOWN;
   }
 
-  // Get the state of the controlled node. Ot can fail, if not transition possible
+  // Set the state of the controlled node
   bool set_state(uint8_t state)
   {
-    auto request = std::make_shared<lifecycle_msgs::srv::ChangeState::Request>();
+    std_srvs::SetBool srv;
 
-    if (state == lifecycle_msgs::msg::State::PRIMARY_STATE_ACTIVE &&
-      ctrl_node_state_ == lifecycle_msgs::msg::State::PRIMARY_STATE_INACTIVE)
+    if (state == STATE_ACTIVE &&
+      ctrl_node_state_ == STATE_INACTIVE)
     {
-      request->transition.id = lifecycle_msgs::msg::Transition::TRANSITION_ACTIVATE;
+      srv.request.data = true;
     } else {
-      if (state == lifecycle_msgs::msg::State::PRIMARY_STATE_INACTIVE &&
-        ctrl_node_state_ == lifecycle_msgs::msg::State::PRIMARY_STATE_ACTIVE)
+      if (state == STATE_INACTIVE &&
+        ctrl_node_state_ == STATE_ACTIVE)
       {
-        request->transition.id = lifecycle_msgs::msg::Transition::TRANSITION_DEACTIVATE;
+        srv.request.data = false;
       } else {
         if (state != ctrl_node_state_) {
-          RCLCPP_ERROR(
-            node_->get_logger(), "Transition not possible %u -> %u", ctrl_node_state_, state);
+          ROS_ERROR("Transition not possible %u -> %u", ctrl_node_state_, state);
           return false;
         } else {
           return true;
@@ -144,21 +146,16 @@ public:
       }
     }
 
-    auto result = change_state_client_->async_send_request(request);
-
-    if (rclcpp::spin_until_future_complete(node_, result) !=
-      rclcpp::FutureReturnCode::SUCCESS)
-    {
-      RCLCPP_ERROR(node_->get_logger(), "Failed to call set_state service");
-      return false;
-    }
-
-    if (!result.get()->success) {
-      RCLCPP_ERROR(
-        node_->get_logger(), "Failed to set node state %u -> %u", ctrl_node_state_, state);
-      return false;
+    if (set_active_client_.call(srv)) {
+      if (!srv.response.success) {
+        ROS_ERROR("Failed to set node state %u -> %u", ctrl_node_state_, state);
+        return false;
+      } else {
+        ROS_INFO("Transition success  %u -> %u", ctrl_node_state_, state);
+      }
     } else {
-      RCLCPP_INFO(node_->get_logger(), "Transition success  %u -> %u", ctrl_node_state_, state);
+      ROS_ERROR("Failed to call set_active service");
+      return false;
     }
 
     ctrl_node_state_ = state;
@@ -168,10 +165,10 @@ public:
   std::string ctrl_node_name_;
   uint8_t ctrl_node_state_;
 
-  rclcpp::Client<lifecycle_msgs::srv::ChangeState>::SharedPtr change_state_client_;
-  rclcpp::Client<lifecycle_msgs::srv::GetState>::SharedPtr get_state_client_;
+  ros::ServiceClient set_active_client_;
+  ros::ServiceClient get_state_client_;
 
-  rclcpp::Node::SharedPtr node_;
+  ros::NodeHandle nh_;
 };
 
 

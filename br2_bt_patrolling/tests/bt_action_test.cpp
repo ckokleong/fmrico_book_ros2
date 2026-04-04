@@ -17,105 +17,151 @@
 #include <memory>
 #include <vector>
 #include <set>
+#include <thread>
 
 #include "behaviortree_cpp_v3/behavior_tree.h"
 #include "behaviortree_cpp_v3/bt_factory.h"
 #include "behaviortree_cpp_v3/utils/shared_library.h"
 
-#include "ament_index_cpp/get_package_share_directory.hpp"
+#include <geometry_msgs/Twist.h>
+#include <geometry_msgs/PoseStamped.h>
+#include <move_base_msgs/MoveBaseAction.h>
+#include <std_srvs/SetBool.h>
+#include <std_srvs/Trigger.h>
 
-#include "geometry_msgs/msg/twist.hpp"
-#include "nav2_msgs/action/navigate_to_pose.hpp"
-#include "lifecycle_msgs/msg/transition.hpp"
-#include "lifecycle_msgs/msg/state.hpp"
-
-#include "rclcpp/rclcpp.hpp"
-#include "rclcpp_lifecycle/lifecycle_node.hpp"
-#include "rclcpp_action/rclcpp_action.hpp"
+#include <ros/ros.h>
+#include <actionlib/server/simple_action_server.h>
+#include <actionlib/client/simple_action_client.h>
 
 #include "br2_bt_patrolling/TrackObjects.hpp"
+#include "br2_bt_patrolling/ctrl_support/BTLifecycleCtrlNode.hpp"
 
 #include "gtest/gtest.h"
 
-using namespace std::placeholders;
-using namespace std::chrono_literals;
 
-
-class VelocitySinkNode : public rclcpp::Node
+class VelocitySinkNode
 {
 public:
   VelocitySinkNode()
-  : Node("VelocitySink")
   {
-    vel_sub_ = create_subscription<geometry_msgs::msg::Twist>(
-      "/output_vel", 100, std::bind(&VelocitySinkNode::vel_callback, this, _1));
+    vel_sub_ = nh_.subscribe(
+      "/output_vel", 100, &VelocitySinkNode::vel_callback, this);
   }
 
-  void vel_callback(geometry_msgs::msg::Twist::SharedPtr msg)
+  void vel_callback(const geometry_msgs::Twist::ConstPtr & msg)
   {
     vel_msgs_.push_back(*msg);
   }
 
-  std::list<geometry_msgs::msg::Twist> vel_msgs_;
+  std::list<geometry_msgs::Twist> vel_msgs_;
 
 private:
-  rclcpp::Subscription<geometry_msgs::msg::Twist>::SharedPtr vel_sub_;
+  ros::NodeHandle nh_;
+  ros::Subscriber vel_sub_;
 };
 
-class Nav2FakeServer : public rclcpp::Node
+class Nav2FakeServer
 {
-  using NavigateToPose = nav2_msgs::action::NavigateToPose;
-  using GoalHandleNavigateToPose = rclcpp_action::ServerGoalHandle<NavigateToPose>;
+  using MoveBase = move_base_msgs::MoveBaseAction;
 
 public:
   Nav2FakeServer()
-  : Node("nav2_fake_server_node") {}
+  : as_(nh_, "move_base", boost::bind(&Nav2FakeServer::execute, this, _1), false)
+  {}
 
   void start_server()
   {
-    move_action_server_ = rclcpp_action::create_server<NavigateToPose>(
-      shared_from_this(),
-      "navigate_to_pose",
-      std::bind(&Nav2FakeServer::handle_goal, this, _1, _2),
-      std::bind(&Nav2FakeServer::handle_cancel, this, _1),
-      std::bind(&Nav2FakeServer::handle_accepted, this, _1));
+    as_.start();
   }
 
 private:
-  rclcpp_action::Server<NavigateToPose>::SharedPtr move_action_server_;
-
-  rclcpp_action::GoalResponse handle_goal(
-    const rclcpp_action::GoalUUID & uuid,
-    std::shared_ptr<const NavigateToPose::Goal> goal)
+  void execute(const move_base_msgs::MoveBaseGoalConstPtr & /*goal*/)
   {
-    return rclcpp_action::GoalResponse::ACCEPT_AND_EXECUTE;
-  }
+    move_base_msgs::MoveBaseFeedback feedback;
 
-  rclcpp_action::CancelResponse handle_cancel(
-    const std::shared_ptr<GoalHandleNavigateToPose> goal_handle)
-  {
-    return rclcpp_action::CancelResponse::ACCEPT;
-  }
+    auto start = ros::Time::now();
+    ros::Rate rate(10);
 
-  void handle_accepted(const std::shared_ptr<GoalHandleNavigateToPose> goal_handle)
-  {
-    std::thread{std::bind(&Nav2FakeServer::execute, this, _1), goal_handle}.detach();
-  }
-
-  void execute(const std::shared_ptr<GoalHandleNavigateToPose> goal_handle)
-  {
-    auto feedback = std::make_shared<NavigateToPose::Feedback>();
-    auto result = std::make_shared<NavigateToPose::Result>();
-
-    auto start = now();
-
-    while ((now() - start) < 5s) {
-      feedback->distance_remaining = 5.0 - (now() - start).seconds();
-      goal_handle->publish_feedback(feedback);
+    while ((ros::Time::now() - start).toSec() < 5.0) {
+      if (as_.isPreemptRequested() || !ros::ok()) {
+        as_.setPreempted();
+        return;
+      }
+      as_.publishFeedback(feedback);
+      rate.sleep();
     }
 
-    goal_handle->succeed(result);
+    as_.setSucceeded(move_base_msgs::MoveBaseResult());
   }
+
+  ros::NodeHandle nh_;
+  actionlib::SimpleActionServer<MoveBase> as_;
+};
+
+// Mock lifecycle node for ROS1 that emulates ROS2 lifecycle behavior
+// using std_srvs services
+class MockLifecycleNode
+{
+public:
+  enum State { UNCONFIGURED = 0, INACTIVE = 1, ACTIVE = 2 };
+
+  explicit MockLifecycleNode(const std::string & name)
+  : state_(UNCONFIGURED), name_(name)
+  {
+    set_active_srv_ = nh_.advertiseService(
+      name + "/set_active", &MockLifecycleNode::setActiveCb, this);
+    get_state_srv_ = nh_.advertiseService(
+      name + "/get_state", &MockLifecycleNode::getStateCb, this);
+  }
+
+  void configure()
+  {
+    if (state_ == UNCONFIGURED) {
+      state_ = INACTIVE;
+    }
+  }
+
+  State getState() const { return state_; }
+
+private:
+  bool setActiveCb(std_srvs::SetBool::Request & req, std_srvs::SetBool::Response & res)
+  {
+    if (req.data) {
+      // activate
+      if (state_ == INACTIVE) {
+        state_ = ACTIVE;
+        res.success = true;
+        res.message = "Activated";
+      } else {
+        res.success = false;
+        res.message = "Cannot activate from current state";
+      }
+    } else {
+      // deactivate
+      if (state_ == ACTIVE) {
+        state_ = INACTIVE;
+        res.success = true;
+        res.message = "Deactivated";
+      } else {
+        res.success = false;
+        res.message = "Cannot deactivate from current state";
+      }
+    }
+    return true;
+  }
+
+  bool getStateCb(std_srvs::Trigger::Request & /*req*/, std_srvs::Trigger::Response & res)
+  {
+    res.success = (state_ == ACTIVE);
+    res.message = std::to_string(static_cast<int>(state_));
+    return true;
+  }
+
+  State state_;
+  std::string name_;
+  ros::NodeHandle nh_;
+  ros::ServiceServer set_active_srv_;
+  ros::ServiceServer get_state_srv_;
 };
 
 class StoreWP : public BT::ActionNodeBase
@@ -129,7 +175,7 @@ public:
   void halt() {}
   BT::NodeStatus tick()
   {
-    waypoints_.push_back(getInput<geometry_msgs::msg::PoseStamped>("in").value());
+    waypoints_.push_back(getInput<geometry_msgs::PoseStamped>("in").value());
     return BT::NodeStatus::SUCCESS;
   }
 
@@ -137,18 +183,18 @@ public:
   {
     return BT::PortsList(
     {
-      BT::InputPort<geometry_msgs::msg::PoseStamped>("in")
+      BT::InputPort<geometry_msgs::PoseStamped>("in")
     });
   }
 
-  static std::vector<geometry_msgs::msg::PoseStamped> waypoints_;
+  static std::vector<geometry_msgs::PoseStamped> waypoints_;
 };
 
-std::vector<geometry_msgs::msg::PoseStamped> StoreWP::waypoints_;
+std::vector<geometry_msgs::PoseStamped> StoreWP::waypoints_;
 
 TEST(bt_action, recharge_btn)
 {
-  auto node = rclcpp::Node::make_shared("recharge_btn_node");
+  ros::NodeHandle nh;
 
   BT::BehaviorTreeFactory factory;
   BT::SharedLibrary loader;
@@ -164,13 +210,13 @@ TEST(bt_action, recharge_btn)
     </root>)";
 
   auto blackboard = BT::Blackboard::create();
-  blackboard->set("node", node);
+  blackboard->set("node", nh);
   BT::Tree tree = factory.createTreeFromText(xml_bt, blackboard);
 
-  rclcpp::Rate rate(10);
+  ros::Rate rate(10);
 
   bool finish = false;
-  while (!finish && rclcpp::ok()) {
+  while (!finish && ros::ok()) {
     finish = tree.rootNode()->executeTick() == BT::NodeStatus::SUCCESS;
     rate.sleep();
   }
@@ -182,7 +228,7 @@ TEST(bt_action, recharge_btn)
 
 TEST(bt_action, patrol_btn)
 {
-  auto node = rclcpp::Node::make_shared("patrol_btn_node");
+  ros::NodeHandle nh;
   auto node_sink = std::make_shared<VelocitySinkNode>();
 
   BT::BehaviorTreeFactory factory;
@@ -199,23 +245,23 @@ TEST(bt_action, patrol_btn)
     </root>)";
 
   auto blackboard = BT::Blackboard::create();
-  blackboard->set("node", node);
+  blackboard->set("node", nh);
   BT::Tree tree = factory.createTreeFromText(xml_bt, blackboard);
 
-  rclcpp::Rate rate(10);
+  ros::Rate rate(10);
 
   bool finish = false;
   int counter = 0;
-  while (!finish && rclcpp::ok()) {
+  while (!finish && ros::ok()) {
     finish = tree.rootNode()->executeTick() == BT::NodeStatus::SUCCESS;
-    rclcpp::spin_some(node_sink->get_node_base_interface());
+    ros::spinOnce();
     rate.sleep();
   }
 
   ASSERT_FALSE(node_sink->vel_msgs_.empty());
   ASSERT_NEAR(node_sink->vel_msgs_.size(), 150, 2);
 
-  geometry_msgs::msg::Twist & one_twist = node_sink->vel_msgs_.front();
+  geometry_msgs::Twist & one_twist = node_sink->vel_msgs_.front();
 
   ASSERT_GT(one_twist.angular.z, 0.1);
   ASSERT_NEAR(one_twist.linear.x, 0.0, 0.0000001);
@@ -223,16 +269,12 @@ TEST(bt_action, patrol_btn)
 
 TEST(bt_action, move_btn)
 {
-  auto node = rclcpp::Node::make_shared("move_btn_node");
+  ros::NodeHandle nh;
   auto nav2_fake_node = std::make_shared<Nav2FakeServer>();
-
   nav2_fake_node->start_server();
 
-  bool finish = false;
-  std::thread t([&]() {
-      while (!finish) {rclcpp::spin_some(nav2_fake_node);}
-    });
-
+  ros::AsyncSpinner spinner(2);
+  spinner.start();
 
   BT::BehaviorTreeFactory factory;
   BT::SharedLibrary loader;
@@ -248,29 +290,29 @@ TEST(bt_action, move_btn)
     </root>)";
 
   auto blackboard = BT::Blackboard::create();
-  blackboard->set("node", node);
+  blackboard->set("node", nh);
 
-  geometry_msgs::msg::PoseStamped goal;
+  geometry_msgs::PoseStamped goal;
   blackboard->set("goal", goal);
 
   BT::Tree tree = factory.createTreeFromText(xml_bt, blackboard);
 
-  rclcpp::Rate rate(10);
+  ros::Rate rate(10);
 
-  int counter = 0;
-  while (!finish && rclcpp::ok()) {
+  bool finish = false;
+  while (!finish && ros::ok()) {
     finish = tree.rootNode()->executeTick() == BT::NodeStatus::SUCCESS;
     rate.sleep();
   }
 
-  t.join();
+  spinner.stop();
 }
 
 TEST(bt_action, get_waypoint_btn)
 {
-  auto node = rclcpp::Node::make_shared("get_waypoint_btn_node");
+  ros::NodeHandle nh;
 
-  rclcpp::spin_some(node);
+  ros::spinOnce();
 
   {
     BT::BehaviorTreeFactory factory;
@@ -287,22 +329,22 @@ TEST(bt_action, get_waypoint_btn)
       </root>)";
 
     auto blackboard = BT::Blackboard::create();
-    blackboard->set("node", node);
+    blackboard->set("node", nh);
     blackboard->set<std::string>("id", "recharge");
 
     BT::Tree tree = factory.createTreeFromText(xml_bt, blackboard);
 
-    rclcpp::Rate rate(10);
+    ros::Rate rate(10);
 
     bool finish = false;
     int counter = 0;
-    while (!finish && rclcpp::ok()) {
+    while (!finish && ros::ok()) {
       finish = tree.rootNode()->executeTick() == BT::NodeStatus::SUCCESS;
       counter++;
       rate.sleep();
     }
 
-    auto point = blackboard->get<geometry_msgs::msg::PoseStamped>("waypoint");
+    auto point = blackboard->get<geometry_msgs::PoseStamped>("waypoint");
 
     ASSERT_EQ(counter, 1);
     ASSERT_NEAR(point.pose.position.x, -1.0, 0.0000001);
@@ -340,14 +382,14 @@ TEST(bt_action, get_waypoint_btn)
       </root>)";
 
     auto blackboard = BT::Blackboard::create();
-    blackboard->set("node", node);
+    blackboard->set("node", nh);
 
     BT::Tree tree = factory.createTreeFromText(xml_bt, blackboard);
 
-    rclcpp::Rate rate(10);
+    ros::Rate rate(10);
 
     bool finish = false;
-    while (!finish && rclcpp::ok()) {
+    while (!finish && ros::ok()) {
       finish = tree.rootNode()->executeTick() == BT::NodeStatus::SUCCESS;
       rate.sleep();
     }
@@ -375,8 +417,8 @@ TEST(bt_action, get_waypoint_btn)
 
 TEST(bt_action, battery_checker_btn)
 {
-  auto node = rclcpp::Node::make_shared("battery_checker_btn_node");
-  auto vel_pub = node->create_publisher<geometry_msgs::msg::Twist>("/output_vel", 100);
+  ros::NodeHandle nh;
+  ros::Publisher vel_pub = nh.advertise<geometry_msgs::Twist>("/output_vel", 100);
 
   BT::BehaviorTreeFactory factory;
   BT::SharedLibrary loader;
@@ -396,21 +438,21 @@ TEST(bt_action, battery_checker_btn)
     </root>)";
 
   auto blackboard = BT::Blackboard::create();
-  blackboard->set("node", node);
+  blackboard->set("node", nh);
   BT::Tree tree = factory.createTreeFromText(xml_bt, blackboard);
 
-  rclcpp::Rate rate(10);
-  geometry_msgs::msg::Twist vel;
+  ros::Rate rate(10);
+  geometry_msgs::Twist vel;
   vel.linear.x = 0.8;
 
   bool finish = false;
   int counter = 0;
-  while (!finish && rclcpp::ok()) {
+  while (!finish && ros::ok()) {
     finish = tree.rootNode()->executeTick() == BT::NodeStatus::SUCCESS;
 
-    vel_pub->publish(vel);
+    vel_pub.publish(vel);
 
-    rclcpp::spin_some(node);
+    ros::spinOnce();
     rate.sleep();
   }
 
@@ -421,124 +463,111 @@ TEST(bt_action, battery_checker_btn)
 
 TEST(bt_action, track_objects_btn_1)
 {
-  auto node = rclcpp::Node::make_shared("track_objects_btn_node");
-  auto node_head_tracker = rclcpp_lifecycle::LifecycleNode::make_shared("head_tracker");
+  ros::NodeHandle nh;
+  auto mock_head_tracker = std::make_shared<MockLifecycleNode>("head_tracker");
 
-  bool finish = false;
-  std::thread t([&]() {
-      while (!finish) {rclcpp::spin_some(node_head_tracker->get_node_base_interface());}
-    });
+  ros::AsyncSpinner spinner(2);
+  spinner.start();
 
   BT::NodeConfiguration conf;
   conf.blackboard = BT::Blackboard::create();
-  conf.blackboard->set("node", node);
+  conf.blackboard->set("node", nh);
   br2_bt_patrolling::BtLifecycleCtrlNode bt_node("TrackObjects", "head_tracker", conf);
 
-  bt_node.change_state_client_ = bt_node.createServiceClient<lifecycle_msgs::srv::ChangeState>(
-    "/head_tracker/change_state");
-  ASSERT_TRUE(bt_node.change_state_client_->service_is_ready());
+  bt_node.set_active_client_ = bt_node.createServiceClient<std_srvs::SetBool>(
+    "/head_tracker/set_active");
+  ASSERT_TRUE(bt_node.set_active_client_.exists());
 
-  bt_node.get_state_client_ = bt_node.createServiceClient<lifecycle_msgs::srv::GetState>(
+  bt_node.get_state_client_ = bt_node.createServiceClient<std_srvs::Trigger>(
     "/head_tracker/get_state");
-  ASSERT_TRUE(bt_node.get_state_client_->service_is_ready());
-  auto start = node->now();
+  ASSERT_TRUE(bt_node.get_state_client_.exists());
 
-  rclcpp::Rate rate(10);
-  while (rclcpp::ok() && (node->now() - start) < 1s) {
-    rclcpp::spin_some(node);
+  auto start = ros::Time::now();
+  ros::Rate rate(10);
+  while (ros::ok() && (ros::Time::now() - start).toSec() < 1.0) {
     rate.sleep();
   }
 
-  ASSERT_EQ(bt_node.get_state(), lifecycle_msgs::msg::State::PRIMARY_STATE_UNCONFIGURED);
-  bt_node.ctrl_node_state_ = lifecycle_msgs::msg::State::PRIMARY_STATE_UNCONFIGURED;
-  ASSERT_FALSE(bt_node.set_state(lifecycle_msgs::msg::State::PRIMARY_STATE_ACTIVE));
+  ASSERT_EQ(bt_node.get_state(), br2_bt_patrolling::STATE_UNCONFIGURED);
+  bt_node.ctrl_node_state_ = br2_bt_patrolling::STATE_UNCONFIGURED;
+  ASSERT_FALSE(bt_node.set_state(br2_bt_patrolling::STATE_ACTIVE));
 
-  node_head_tracker->trigger_transition(lifecycle_msgs::msg::Transition::TRANSITION_CONFIGURE);
+  mock_head_tracker->configure();
 
-  start = node->now();
-  while (rclcpp::ok() && (node->now() - start) < 1s) {
-    rclcpp::spin_some(node);
-    rate.sleep();
-  }
-
-  bt_node.ctrl_node_state_ = bt_node.get_state();
-
-  ASSERT_TRUE(bt_node.set_state(lifecycle_msgs::msg::State::PRIMARY_STATE_ACTIVE));
-  ASSERT_EQ(bt_node.get_state(), lifecycle_msgs::msg::State::PRIMARY_STATE_ACTIVE);
-
-  start = node->now();
-  while (rclcpp::ok() && (node->now() - start) < 1s) {
-    rclcpp::spin_some(node);
+  start = ros::Time::now();
+  while (ros::ok() && (ros::Time::now() - start).toSec() < 1.0) {
     rate.sleep();
   }
 
   bt_node.ctrl_node_state_ = bt_node.get_state();
 
-  ASSERT_TRUE(bt_node.set_state(lifecycle_msgs::msg::State::PRIMARY_STATE_INACTIVE));
-  ASSERT_EQ(bt_node.get_state(), lifecycle_msgs::msg::State::PRIMARY_STATE_INACTIVE);
+  ASSERT_TRUE(bt_node.set_state(br2_bt_patrolling::STATE_ACTIVE));
+  ASSERT_EQ(bt_node.get_state(), br2_bt_patrolling::STATE_ACTIVE);
 
-  finish = true;
-  t.join();
+  start = ros::Time::now();
+  while (ros::ok() && (ros::Time::now() - start).toSec() < 1.0) {
+    rate.sleep();
+  }
+
+  bt_node.ctrl_node_state_ = bt_node.get_state();
+
+  ASSERT_TRUE(bt_node.set_state(br2_bt_patrolling::STATE_INACTIVE));
+  ASSERT_EQ(bt_node.get_state(), br2_bt_patrolling::STATE_INACTIVE);
+
+  spinner.stop();
 }
 
 TEST(bt_action, track_objects_btn_2)
 {
-  auto node = rclcpp::Node::make_shared("track_objects_btn_node");
-  auto node_head_tracker = rclcpp_lifecycle::LifecycleNode::make_shared("head_tracker");
+  ros::NodeHandle nh;
+  auto mock_head_tracker = std::make_shared<MockLifecycleNode>("head_tracker");
 
-  bool finish = false;
-  std::thread t([&]() {
-      while (!finish) {rclcpp::spin_some(node_head_tracker->get_node_base_interface());}
-    });
+  ros::AsyncSpinner spinner(2);
+  spinner.start();
 
   BT::NodeConfiguration conf;
   conf.blackboard = BT::Blackboard::create();
-  conf.blackboard->set("node", node);
+  conf.blackboard->set("node", nh);
   br2_bt_patrolling::BtLifecycleCtrlNode bt_node("TrackObjects", "head_tracker", conf);
 
-  node_head_tracker->trigger_transition(lifecycle_msgs::msg::Transition::TRANSITION_CONFIGURE);
+  mock_head_tracker->configure();
 
-  rclcpp::Rate rate(10);
-  auto start = node->now();
-  while (rclcpp::ok() && (node->now() - start) < 1s) {
-    rclcpp::spin_some(node);
+  ros::Rate rate(10);
+  auto start = ros::Time::now();
+  while (ros::ok() && (ros::Time::now() - start).toSec() < 1.0) {
     rate.sleep();
   }
 
   ASSERT_EQ(bt_node.tick(), BT::NodeStatus::RUNNING);
 
-  ASSERT_TRUE(bt_node.change_state_client_->service_is_ready());
-  ASSERT_TRUE(bt_node.get_state_client_->service_is_ready());
+  ASSERT_TRUE(bt_node.set_active_client_.exists());
+  ASSERT_TRUE(bt_node.get_state_client_.exists());
 
-  ASSERT_EQ(bt_node.get_state(), lifecycle_msgs::msg::State::PRIMARY_STATE_ACTIVE);
+  ASSERT_EQ(bt_node.get_state(), br2_bt_patrolling::STATE_ACTIVE);
 
   ASSERT_EQ(bt_node.tick(), BT::NodeStatus::RUNNING);
 
   bt_node.halt();
 
-  start = node->now();
-  while (rclcpp::ok() && (node->now() - start) < 1s) {
-    rclcpp::spin_some(node);
+  start = ros::Time::now();
+  while (ros::ok() && (ros::Time::now() - start).toSec() < 1.0) {
     rate.sleep();
   }
 
-  ASSERT_EQ(bt_node.get_state(), lifecycle_msgs::msg::State::PRIMARY_STATE_INACTIVE);
+  ASSERT_EQ(bt_node.get_state(), br2_bt_patrolling::STATE_INACTIVE);
 
-  finish = true;
-  t.join();
+  spinner.stop();
 }
 
 TEST(bt_action, track_objects_btn_3)
 {
-  auto node = rclcpp::Node::make_shared("track_objects_btn_node");
-  auto node_head_tracker = rclcpp_lifecycle::LifecycleNode::make_shared("head_tracker");
+  ros::NodeHandle nh;
+  auto mock_head_tracker = std::make_shared<MockLifecycleNode>("head_tracker");
 
-  node_head_tracker->trigger_transition(lifecycle_msgs::msg::Transition::TRANSITION_CONFIGURE);
+  mock_head_tracker->configure();
 
-  bool finish = false;
-  std::thread t([&]() {
-      while (!finish) {rclcpp::spin_some(node_head_tracker->get_node_base_interface());}
-    });
+  ros::AsyncSpinner spinner(2);
+  spinner.start();
 
   BT::BehaviorTreeFactory factory;
   BT::SharedLibrary loader;
@@ -556,59 +585,50 @@ TEST(bt_action, track_objects_btn_3)
     </root>)";
 
   auto blackboard = BT::Blackboard::create();
-  blackboard->set("node", node);
-  auto start = node->now();
-  rclcpp::Rate rate(10);
+  blackboard->set("node", nh);
+  auto start = ros::Time::now();
+  ros::Rate rate(10);
 
   {
     BT::Tree tree = factory.createTreeFromText(xml_bt, blackboard);
 
     ASSERT_EQ(
-      node_head_tracker->get_current_state().id(),
-      lifecycle_msgs::msg::State::PRIMARY_STATE_INACTIVE);
+      static_cast<int>(mock_head_tracker->getState()),
+      static_cast<int>(MockLifecycleNode::INACTIVE));
 
-    while (rclcpp::ok() && (node->now() - start) < 1s) {
+    while (ros::ok() && (ros::Time::now() - start).toSec() < 1.0) {
       tree.rootNode()->executeTick() == BT::NodeStatus::RUNNING;
 
-      rclcpp::spin_some(node);
       rate.sleep();
     }
     ASSERT_EQ(
-      node_head_tracker->get_current_state().id(),
-      lifecycle_msgs::msg::State::PRIMARY_STATE_ACTIVE);
+      static_cast<int>(mock_head_tracker->getState()),
+      static_cast<int>(MockLifecycleNode::ACTIVE));
   }
 
-  start = node->now();
-  while (rclcpp::ok() && (node->now() - start) < 1s) {
-    rclcpp::spin_some(node);
+  start = ros::Time::now();
+  while (ros::ok() && (ros::Time::now() - start).toSec() < 1.0) {
     rate.sleep();
   }
 
   ASSERT_EQ(
-    node_head_tracker->get_current_state().id(),
-    lifecycle_msgs::msg::State::PRIMARY_STATE_INACTIVE);
+    static_cast<int>(mock_head_tracker->getState()),
+    static_cast<int>(MockLifecycleNode::INACTIVE));
 
-  finish = true;
-  t.join();
+  spinner.stop();
 }
 
 TEST(bt_action, move_track_btn)
 {
-  auto node = rclcpp::Node::make_shared("move_btn_node");
+  ros::NodeHandle nh;
   auto nav2_fake_node = std::make_shared<Nav2FakeServer>();
-  auto node_head_tracker = rclcpp_lifecycle::LifecycleNode::make_shared("head_tracker");
+  auto mock_head_tracker = std::make_shared<MockLifecycleNode>("head_tracker");
 
-  node_head_tracker->trigger_transition(lifecycle_msgs::msg::Transition::TRANSITION_CONFIGURE);
-
+  mock_head_tracker->configure();
   nav2_fake_node->start_server();
 
-  rclcpp::executors::SingleThreadedExecutor exe;
-  exe.add_node(nav2_fake_node);
-  exe.add_node(node_head_tracker->get_node_base_interface());
-  bool finish = false;
-  std::thread t([&]() {
-      while (!finish) {exe.spin_some();}
-    });
+  ros::AsyncSpinner spinner(2);
+  spinner.start();
 
   BT::BehaviorTreeFactory factory;
   BT::SharedLibrary loader;
@@ -628,56 +648,52 @@ TEST(bt_action, move_track_btn)
     </root>)";
 
   auto blackboard = BT::Blackboard::create();
-  blackboard->set("node", node);
+  blackboard->set("node", nh);
 
-  geometry_msgs::msg::PoseStamped goal;
+  geometry_msgs::PoseStamped goal;
   blackboard->set("goal", goal);
 
   BT::Tree tree = factory.createTreeFromText(xml_bt, blackboard);
 
   ASSERT_EQ(
-    node_head_tracker->get_current_state().id(),
-    lifecycle_msgs::msg::State::PRIMARY_STATE_INACTIVE);
+    static_cast<int>(mock_head_tracker->getState()),
+    static_cast<int>(MockLifecycleNode::INACTIVE));
 
-  rclcpp::Rate rate(10);
-  auto start = node->now();
+  ros::Rate rate(10);
+  auto start = ros::Time::now();
   auto finish_tree = false;
-  while (rclcpp::ok() && (node->now() - start) < 1s) {
+  while (ros::ok() && (ros::Time::now() - start).toSec() < 1.0) {
     finish_tree = tree.rootNode()->executeTick() == BT::NodeStatus::SUCCESS;
 
-    rclcpp::spin_some(node);
     rate.sleep();
   }
 
   ASSERT_FALSE(finish_tree);
   ASSERT_EQ(
-    node_head_tracker->get_current_state().id(),
-    lifecycle_msgs::msg::State::PRIMARY_STATE_ACTIVE);
+    static_cast<int>(mock_head_tracker->getState()),
+    static_cast<int>(MockLifecycleNode::ACTIVE));
 
-  while (rclcpp::ok() && !finish_tree) {
+  while (ros::ok() && !finish_tree) {
     finish_tree = tree.rootNode()->executeTick() == BT::NodeStatus::SUCCESS;
 
-    rclcpp::spin_some(node);
     rate.sleep();
   }
 
-  start = node->now();
-  while (rclcpp::ok() && (node->now() - start) < 1s) {
-    rclcpp::spin_some(node);
+  start = ros::Time::now();
+  while (ros::ok() && (ros::Time::now() - start).toSec() < 1.0) {
     rate.sleep();
   }
 
   ASSERT_EQ(
-    node_head_tracker->get_current_state().id(),
-    lifecycle_msgs::msg::State::PRIMARY_STATE_INACTIVE);
+    static_cast<int>(mock_head_tracker->getState()),
+    static_cast<int>(MockLifecycleNode::INACTIVE));
 
-  finish = true;
-  t.join();
+  spinner.stop();
 }
 
 int main(int argc, char ** argv)
 {
-  rclcpp::init(argc, argv);
+  ros::init(argc, argv, "bt_action_test");
 
   testing::InitGoogleTest(&argc, argv);
   return RUN_ALL_TESTS();
