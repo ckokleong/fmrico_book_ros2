@@ -1,15 +1,17 @@
-cmake_minimum_required(VERSION 3.5)
+cmake_minimum_required(VERSION 3.0.2)
 project(br2_bt_bumpgo)
 
 set(CMAKE_CONFIG_PATH ${CMAKE_MODULE_PATH}  "${CMAKE_CURRENT_LIST_DIR}/cmake")
 list(APPEND CMAKE_MODULE_PATH "${CMAKE_CONFIG_PATH}")
 
-find_package(ament_cmake REQUIRED)
-find_package(rclcpp REQUIRED)
+find_package(catkin REQUIRED COMPONENTS
+  roscpp
+  sensor_msgs
+  geometry_msgs
+  roslib
+)
+
 find_package(behaviortree_cpp_v3 REQUIRED)
-find_package(sensor_msgs REQUIRED)
-find_package(geometry_msgs REQUIRED)
-find_package(ament_index_cpp REQUIRED)
 
 find_package(ZMQ)
 if(ZMQ_FOUND)
@@ -21,15 +23,25 @@ endif()
 
 set(CMAKE_CXX_STANDARD 17)
 
-set(dependencies
-    rclcpp
-    behaviortree_cpp_v3
+catkin_package(
+  INCLUDE_DIRS include
+  LIBRARIES
+    br2_forward_bt_node
+    br2_back_bt_node
+    br2_turn_bt_node
+    br2_is_obstacle_bt_node
+  CATKIN_DEPENDS
+    roscpp
     sensor_msgs
     geometry_msgs
-    ament_index_cpp
+    roslib
 )
 
-include_directories(include ${ZMQ_INCLUDE_DIRS})
+include_directories(
+  include
+  ${catkin_INCLUDE_DIRS}
+  ${ZMQ_INCLUDE_DIRS}
+)
 
 add_library(br2_forward_bt_node SHARED src/br2_bt_bumpgo/Forward.cpp)
 add_library(br2_back_bt_node SHARED src/br2_bt_bumpgo/Back.cpp)
@@ -44,44 +56,30 @@ list(APPEND plugin_libs
 )
 
 foreach(bt_plugin ${plugin_libs})
-  ament_target_dependencies(${bt_plugin} ${dependencies})
+  target_link_libraries(${bt_plugin} ${catkin_LIBRARIES} ${behaviortree_cpp_v3_LIBRARIES})
   target_compile_definitions(${bt_plugin} PRIVATE BT_PLUGIN_EXPORT)
 endforeach()
 
 add_executable(bt_bumpgo src/bt_bumpgo_main.cpp)
-ament_target_dependencies(bt_bumpgo ${dependencies})
-target_link_libraries(bt_bumpgo ${ZMQ_LIBRARIES})
+target_link_libraries(bt_bumpgo ${catkin_LIBRARIES} ${behaviortree_cpp_v3_LIBRARIES} ${ZMQ_LIBRARIES})
 
 install(TARGETS
   ${plugin_libs}
   bt_bumpgo
-  ARCHIVE DESTINATION lib
-  LIBRARY DESTINATION lib
-  RUNTIME DESTINATION lib/${PROJECT_NAME}
+  ARCHIVE DESTINATION ${CATKIN_PACKAGE_LIB_DESTINATION}
+  LIBRARY DESTINATION ${CATKIN_PACKAGE_LIB_DESTINATION}
+  RUNTIME DESTINATION ${CATKIN_PACKAGE_BIN_DESTINATION}
 )
 
-install(DIRECTORY include/
-  DESTINATION include/
+install(DIRECTORY include/${PROJECT_NAME}/
+  DESTINATION ${CATKIN_PACKAGE_INCLUDE_DESTINATION}
 )
 
 install(DIRECTORY behavior_tree_xml
-  DESTINATION share/${PROJECT_NAME}
+  DESTINATION ${CATKIN_PACKAGE_SHARE_DESTINATION}
 )
 
-
-if(BUILD_TESTING)
-  find_package(ament_lint_auto REQUIRED)
-  ament_lint_auto_find_test_dependencies()
-
-  set(ament_cmake_cpplint_FOUND TRUE)
-  ament_lint_auto_find_test_dependencies()
-
-  find_package(ament_cmake_gtest REQUIRED)
-
+if(CATKIN_ENABLE_TESTING)
   add_subdirectory(tests)
 endif()
 
-ament_export_include_directories(include)
-ament_export_dependencies(${dependencies})
-
-ament_package()

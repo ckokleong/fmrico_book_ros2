@@ -20,8 +20,8 @@
 #include "behaviortree_cpp_v3/behavior_tree.h"
 #include "behaviortree_cpp_v3/bt_factory.h"
 
-#include "sensor_msgs/msg/laser_scan.hpp"
-#include "rclcpp/rclcpp.hpp"
+#include "sensor_msgs/LaserScan.h"
+#include "ros/ros.h"
 
 namespace br2_bt_bumpgo
 {
@@ -43,13 +43,14 @@ public:
       });
   }
 
-  void laser_callback(sensor_msgs::msg::LaserScan::UniquePtr msg);
+  void laser_callback(const sensor_msgs::LaserScan::ConstPtr & msg);
 
 private:
-  rclcpp::Node::SharedPtr node_;
-  rclcpp::Time last_reading_time_;
-  rclcpp::Subscription<sensor_msgs::msg::LaserScan>::SharedPtr laser_sub_;
-  sensor_msgs::msg::LaserScan::UniquePtr last_scan_;
+  ros::NodeHandle nh_;
+  ros::Time last_reading_time_;
+  ros::Subscriber laser_sub_;
+  sensor_msgs::LaserScan last_scan_;
+  bool scan_received_;
 };
 
 }  // namespace br2_bt_bumpgo

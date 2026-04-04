@@ -22,44 +22,38 @@
 #include "behaviortree_cpp_v3/bt_factory.h"
 #include "behaviortree_cpp_v3/utils/shared_library.h"
 
-#include "ament_index_cpp/get_package_share_directory.hpp"
+#include "geometry_msgs/Twist.h"
+#include "sensor_msgs/LaserScan.h"
 
-#include "geometry_msgs/msg/twist.hpp"
-#include "sensor_msgs/msg/laser_scan.hpp"
-
-#include "rclcpp/rclcpp.hpp"
+#include "ros/ros.h"
 
 #include "gtest/gtest.h"
 
-using namespace std::placeholders;
-using namespace std::chrono_literals;
 
-
-class VelocitySinkNode : public rclcpp::Node
+class VelocitySinkNode
 {
 public:
   VelocitySinkNode()
-  : Node("VelocitySink")
   {
-    vel_sub_ = create_subscription<geometry_msgs::msg::Twist>(
-      "/output_vel", 100, std::bind(&VelocitySinkNode::vel_callback, this, _1));
+    vel_sub_ = nh_.subscribe(
+      "/output_vel", 100, &VelocitySinkNode::vel_callback, this);
   }
 
-  void vel_callback(geometry_msgs::msg::Twist::SharedPtr msg)
+  void vel_callback(const geometry_msgs::Twist::ConstPtr & msg)
   {
     vel_msgs_.push_back(*msg);
   }
 
-  std::list<geometry_msgs::msg::Twist> vel_msgs_;
+  std::list<geometry_msgs::Twist> vel_msgs_;
 
 private:
-  rclcpp::Subscription<geometry_msgs::msg::Twist>::SharedPtr vel_sub_;
+  ros::NodeHandle nh_;
+  ros::Subscriber vel_sub_;
 };
 
 
 TEST(bt_action, turn_btn)
 {
-  auto node = rclcpp::Node::make_shared("turn_btn_node");
   auto node_sink = std::make_shared<VelocitySinkNode>();
 
   BT::BehaviorTreeFactory factory;
@@ -76,21 +70,20 @@ TEST(bt_action, turn_btn)
     </root>)";
 
   auto blackboard = BT::Blackboard::create();
-  blackboard->set("node", node);
   BT::Tree tree = factory.createTreeFromText(xml_bt, blackboard);
 
-  rclcpp::Rate rate(10);
+  ros::Rate rate(10);
   bool finish = false;
-  while (!finish && rclcpp::ok()) {
+  while (!finish && ros::ok()) {
     finish = tree.rootNode()->executeTick() == BT::NodeStatus::SUCCESS;
-    rclcpp::spin_some(node_sink);
+    ros::spinOnce();
     rate.sleep();
   }
 
   ASSERT_FALSE(node_sink->vel_msgs_.empty());
   ASSERT_NEAR(node_sink->vel_msgs_.size(), 30, 1);
 
-  geometry_msgs::msg::Twist & one_twist = node_sink->vel_msgs_.front();
+  geometry_msgs::Twist & one_twist = node_sink->vel_msgs_.front();
 
   ASSERT_GT(one_twist.angular.z, 0.1);
   ASSERT_NEAR(one_twist.linear.x, 0.0, 0.0000001);
@@ -98,7 +91,6 @@ TEST(bt_action, turn_btn)
 
 TEST(bt_action, back_btn)
 {
-  auto node = rclcpp::Node::make_shared("back_btn_node");
   auto node_sink = std::make_shared<VelocitySinkNode>();
 
   BT::BehaviorTreeFactory factory;
@@ -115,21 +107,20 @@ TEST(bt_action, back_btn)
     </root>)";
 
   auto blackboard = BT::Blackboard::create();
-  blackboard->set("node", node);
   BT::Tree tree = factory.createTreeFromText(xml_bt, blackboard);
 
-  rclcpp::Rate rate(10);
+  ros::Rate rate(10);
   bool finish = false;
-  while (!finish && rclcpp::ok()) {
+  while (!finish && ros::ok()) {
     finish = tree.rootNode()->executeTick() == BT::NodeStatus::SUCCESS;
-    rclcpp::spin_some(node_sink);
+    ros::spinOnce();
     rate.sleep();
   }
 
   ASSERT_FALSE(node_sink->vel_msgs_.empty());
   ASSERT_NEAR(node_sink->vel_msgs_.size(), 30, 1);
 
-  geometry_msgs::msg::Twist & one_twist = node_sink->vel_msgs_.front();
+  geometry_msgs::Twist & one_twist = node_sink->vel_msgs_.front();
 
   ASSERT_LT(one_twist.linear.x, -0.1);
   ASSERT_NEAR(one_twist.angular.z, 0.0, 0.0000001);
@@ -137,7 +128,6 @@ TEST(bt_action, back_btn)
 
 TEST(bt_action, forward_btn)
 {
-  auto node = rclcpp::Node::make_shared("forward_btn_node");
   auto node_sink = std::make_shared<VelocitySinkNode>();
 
   BT::BehaviorTreeFactory factory;
@@ -154,15 +144,14 @@ TEST(bt_action, forward_btn)
     </root>)";
 
   auto blackboard = BT::Blackboard::create();
-  blackboard->set("node", node);
   BT::Tree tree = factory.createTreeFromText(xml_bt, blackboard);
 
-  rclcpp::Rate rate(10);
+  ros::Rate rate(10);
   auto current_status = BT::NodeStatus::FAILURE;
   int counter = 0;
-  while (counter++ < 30 && rclcpp::ok()) {
+  while (counter++ < 30 && ros::ok()) {
     current_status = tree.rootNode()->executeTick();
-    rclcpp::spin_some(node_sink);
+    ros::spinOnce();
     rate.sleep();
   }
 
@@ -170,7 +159,7 @@ TEST(bt_action, forward_btn)
   ASSERT_FALSE(node_sink->vel_msgs_.empty());
   ASSERT_NEAR(node_sink->vel_msgs_.size(), 30, 1);
 
-  geometry_msgs::msg::Twist & one_twist = node_sink->vel_msgs_.front();
+  geometry_msgs::Twist & one_twist = node_sink->vel_msgs_.front();
 
   ASSERT_GT(one_twist.linear.x, 0.1);
   ASSERT_NEAR(one_twist.angular.z, 0.0, 0.0000001);
@@ -178,8 +167,8 @@ TEST(bt_action, forward_btn)
 
 TEST(bt_action, is_obstacle_btn)
 {
-  auto node = rclcpp::Node::make_shared("is_obstacle_btn_node");
-  auto scan_pub = node->create_publisher<sensor_msgs::msg::LaserScan>("input_scan", 1);
+  ros::NodeHandle nh;
+  auto scan_pub = nh.advertise<sensor_msgs::LaserScan>("input_scan", 1);
 
   BT::BehaviorTreeFactory factory;
   BT::SharedLibrary loader;
@@ -195,16 +184,15 @@ TEST(bt_action, is_obstacle_btn)
     </root>)";
 
   auto blackboard = BT::Blackboard::create();
-  blackboard->set("node", node);
   BT::Tree tree = factory.createTreeFromText(xml_bt, blackboard);
 
-  rclcpp::Rate rate(10);
+  ros::Rate rate(10);
 
-  sensor_msgs::msg::LaserScan scan;
+  sensor_msgs::LaserScan scan;
   scan.ranges.push_back(2.0);
   for (int i = 0; i < 10; i++) {
-    scan_pub->publish(scan);
-    rclcpp::spin_some(node);
+    scan_pub.publish(scan);
+    ros::spinOnce();
     rate.sleep();
   }
 
@@ -213,8 +201,8 @@ TEST(bt_action, is_obstacle_btn)
 
   scan.ranges[0] = 0.3;
   for (int i = 0; i < 10; i++) {
-    scan_pub->publish(scan);
-    rclcpp::spin_some(node);
+    scan_pub.publish(scan);
+    ros::spinOnce();
     rate.sleep();
   }
 
@@ -232,8 +220,8 @@ TEST(bt_action, is_obstacle_btn)
 
   scan.ranges[0] = 0.3;
   for (int i = 0; i < 10; i++) {
-    scan_pub->publish(scan);
-    rclcpp::spin_some(node);
+    scan_pub.publish(scan);
+    ros::spinOnce();
     rate.sleep();
   }
 
@@ -242,8 +230,8 @@ TEST(bt_action, is_obstacle_btn)
 
   scan.ranges[0] = 0.6;
   for (int i = 0; i < 10; i++) {
-    scan_pub->publish(scan);
-    rclcpp::spin_some(node);
+    scan_pub.publish(scan);
+    ros::spinOnce();
     rate.sleep();
   }
 
@@ -253,7 +241,7 @@ TEST(bt_action, is_obstacle_btn)
 
 int main(int argc, char ** argv)
 {
-  rclcpp::init(argc, argv);
+  ros::init(argc, argv, "bt_action_test");
 
   testing::InitGoogleTest(&argc, argv);
   return RUN_ALL_TESTS();

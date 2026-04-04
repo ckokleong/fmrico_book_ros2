@@ -19,45 +19,42 @@
 
 #include "behaviortree_cpp_v3/behavior_tree.h"
 
-#include "sensor_msgs/msg/laser_scan.hpp"
-#include "rclcpp/rclcpp.hpp"
+#include "sensor_msgs/LaserScan.h"
+#include "ros/ros.h"
 
 namespace br2_bt_bumpgo
 {
 
-using namespace std::chrono_literals;
-using namespace std::placeholders;
-
 IsObstacle::IsObstacle(
   const std::string & xml_tag_name,
   const BT::NodeConfiguration & conf)
-: BT::ConditionNode(xml_tag_name, conf)
+: BT::ConditionNode(xml_tag_name, conf),
+  scan_received_(false)
 {
-  config().blackboard->get("node", node_);
+  laser_sub_ = nh_.subscribe(
+    "/input_scan", 100, &IsObstacle::laser_callback, this);
 
-  laser_sub_ = node_->create_subscription<sensor_msgs::msg::LaserScan>(
-    "/input_scan", 100, std::bind(&IsObstacle::laser_callback, this, _1));
-
-  last_reading_time_ = node_->now();
+  last_reading_time_ = ros::Time::now();
 }
 
 void
-IsObstacle::laser_callback(sensor_msgs::msg::LaserScan::UniquePtr msg)
+IsObstacle::laser_callback(const sensor_msgs::LaserScan::ConstPtr & msg)
 {
-  last_scan_ = std::move(msg);
+  last_scan_ = *msg;
+  scan_received_ = true;
 }
 
 BT::NodeStatus
 IsObstacle::tick()
 {
-  if (last_scan_ == nullptr) {
+  if (!scan_received_) {
     return BT::NodeStatus::FAILURE;
   }
 
   double distance = 1.0;
   getInput("distance", distance);
 
-  if (last_scan_->ranges[last_scan_->ranges.size() / 2] < distance) {
+  if (last_scan_.ranges[last_scan_.ranges.size() / 2] < distance) {
     return BT::NodeStatus::SUCCESS;
   } else {
     return BT::NodeStatus::FAILURE;
