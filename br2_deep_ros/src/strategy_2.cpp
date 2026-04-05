@@ -13,145 +13,132 @@
 // limitations under the License.
 
 #include <fstream>
+#include <stdexcept>
+#include <cstring>
+#include <thread>
 
 #include "yaets/tracing.hpp"
 
-#include "rclcpp/rclcpp.hpp"
-#include "std_msgs/msg/int32.hpp"
+#include "ros/ros.h"
+#include "std_msgs/Int32.h"
 
-using namespace std::chrono_literals;
 using std::placeholders::_1;
 
 
 yaets::TraceSession session("strategy_2.log");
 
 
-void waste_time(rclcpp::Node::SharedPtr node, const rclcpp::Duration & duration)
+void waste_time(const ros::WallDuration & duration)
 {
-  auto start = node->now();
-  while (node->now() - start < duration) {}
+  ros::WallTime start = ros::WallTime::now();
+  while (ros::WallTime::now() - start < duration) {}
 }
 
-class ProducerNode : public rclcpp::Node
+class ProducerNode
 {
 public:
-  ProducerNode()
-  : Node("producer_node")
+  explicit ProducerNode(ros::NodeHandle & nh)
   {
-    pub_ = create_publisher<std_msgs::msg::Int32>("int_topic", 100);
-    timer_ = create_wall_timer(10ms, std::bind(&ProducerNode::timer_callback, this));
+    pub_ = nh.advertise<std_msgs::Int32>("int_topic", 100);
+    timer_ = nh.createWallTimer(
+      ros::WallDuration(0.01), &ProducerNode::timer_callback, this);
   }
 
-  void timer_callback()
+  void timer_callback(const ros::WallTimerEvent &)
   {
     TRACE_EVENT(session);
 
-    waste_time(shared_from_this(), 200us);
+    waste_time(ros::WallDuration(0.0002));
 
     message_.data += 1;
-    pub_->publish(message_);
+    pub_.publish(message_);
   }
 
 private:
-  rclcpp::Publisher<std_msgs::msg::Int32>::SharedPtr pub_;
-  rclcpp::TimerBase::SharedPtr timer_;
-  std_msgs::msg::Int32 message_;
+  ros::Publisher pub_;
+  ros::WallTimer timer_;
+  std_msgs::Int32 message_;
 };
 
-class ConsumerNode : public rclcpp::Node
+class ConsumerNode
 {
 public:
-  ConsumerNode()
-  : Node("consumer_node")
+  ConsumerNode(ros::NodeHandle & nh, ros::NodeHandle & rt_nh)
   {
-    rt_callback_group_ = this->create_callback_group(
-      rclcpp::CallbackGroupType::MutuallyExclusive, false);
+    // The subscription uses the RT callback queue (emulates a
+    // MutuallyExclusive callback group not auto-added to the main executor)
+    sub_ = rt_nh.subscribe("int_topic", 100, &ConsumerNode::cb, this);
 
-    rclcpp::SubscriptionOptions sub_options;
-    sub_options.callback_group = rt_callback_group_;
-    sub_ = create_subscription<std_msgs::msg::Int32>(
-      "int_topic", 100, std::bind(&ConsumerNode::cb, this, _1), sub_options);
-
-    timer_ = create_wall_timer(10ms, std::bind(&ConsumerNode::timer_cb, this));
+    // The timer stays on the main (non-RT) callback queue
+    timer_ = nh.createWallTimer(
+      ros::WallDuration(0.01), &ConsumerNode::timer_cb, this);
   }
 
-  void cb(const std_msgs::msg::Int32::SharedPtr msg)
+  void cb(const std_msgs::Int32::ConstPtr & msg)
   {
     TRACE_EVENT(session);
 
-    waste_time(shared_from_this(), 500us);
+    waste_time(ros::WallDuration(0.0005));
   }
 
 
-  void timer_cb()
+  void timer_cb(const ros::WallTimerEvent &)
   {
     TRACE_EVENT(session);
 
-    waste_time(shared_from_this(), 2ms);
-  }
-
-  rclcpp::CallbackGroup::SharedPtr get_rt_callback_group()
-  {
-    return rt_callback_group_;
+    waste_time(ros::WallDuration(0.002));
   }
 
 private:
-  rclcpp::Subscription<std_msgs::msg::Int32>::SharedPtr sub_;
-  rclcpp::TimerBase::SharedPtr timer_;
-  rclcpp::CallbackGroup::SharedPtr rt_callback_group_;
+  ros::Subscriber sub_;
+  ros::WallTimer timer_;
 };
 
-class LoggerNode : public rclcpp::Node
+class LoggerNode
 {
 public:
-  LoggerNode()
-  : Node("logger_node")
+  explicit LoggerNode(ros::NodeHandle & nh)
   {
-    sub_ = create_subscription<std_msgs::msg::Int32>(
-      "int_topic", 100, std::bind(&LoggerNode::cb, this, _1));
+    sub_ = nh.subscribe("int_topic", 100, &LoggerNode::cb, this);
 
-    timer_ = create_wall_timer(10ms, std::bind(&LoggerNode::timer_cb, this));
+    timer_ = nh.createWallTimer(
+      ros::WallDuration(0.01), &LoggerNode::timer_cb, this);
   }
 
-  void cb(const std_msgs::msg::Int32::SharedPtr msg)
+  void cb(const std_msgs::Int32::ConstPtr & msg)
   {
     TRACE_EVENT(session);
 
-    waste_time(shared_from_this(), 500us);
+    waste_time(ros::WallDuration(0.0005));
   }
 
 
-  void timer_cb()
+  void timer_cb(const ros::WallTimerEvent &)
   {
     TRACE_EVENT(session);
 
-    waste_time(shared_from_this(), 2ms);
+    waste_time(ros::WallDuration(0.002));
   }
 
 private:
-  rclcpp::Subscription<std_msgs::msg::Int32>::SharedPtr sub_;
-  rclcpp::TimerBase::SharedPtr timer_;
+  ros::Subscriber sub_;
+  ros::WallTimer timer_;
 };
 
 
 int main(int argc, char * argv[])
 {
-  rclcpp::init(argc, argv);
+  ros::init(argc, argv, "strategy_2_node");
+  ros::NodeHandle nh;
 
-  auto node_producer = std::make_shared<ProducerNode>();
-  auto node_consumer = std::make_shared<ConsumerNode>();
-  auto node_logger = std::make_shared<LoggerNode>();
+  // RT callback queue (emulates the separate RT executor)
+  ros::CallbackQueue rt_queue;
+  ros::NodeHandle rt_nh;
+  rt_nh.setCallbackQueue(&rt_queue);
 
-  rclcpp::executors::SingleThreadedExecutor no_rt_executor;
-  rclcpp::executors::SingleThreadedExecutor rt_executor;
-
-  no_rt_executor.add_node(node_producer);
-  no_rt_executor.add_node(node_logger);
-  no_rt_executor.add_node(node_consumer);
-
-  rt_executor.add_callback_group(
-    node_consumer->get_rt_callback_group(),
-    node_consumer->get_node_base_interface());
+  ProducerNode producer(nh);
+  ConsumerNode consumer(nh, rt_nh);
+  LoggerNode logger(nh);
 
   auto rt_thread = std::thread(
     [&]() {
@@ -162,13 +149,14 @@ int main(int argc, char * argv[])
         throw std::runtime_error{std::string("failed to set scheduler: ") + std::strerror(errno)};
       }
 
-      rt_executor.spin();
+      while (ros::ok()) {
+        rt_queue.callAvailable(ros::WallDuration(0.001));
+      }
   });
 
-  no_rt_executor.spin();
+  ros::spin();
 
   rt_thread.join();
 
-  rclcpp::shutdown();
   return 0;
 }

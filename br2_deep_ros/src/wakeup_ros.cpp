@@ -14,13 +14,11 @@
 
 
 #include "yaets/tracing.hpp"
-#include "rclcpp/rclcpp.hpp"
-
-using namespace std::chrono_literals;
+#include "ros/ros.h"
 
 int main(int argc, char * argv[])
 {
-  rclcpp::init(argc, argv);
+  ros::init(argc, argv, "wakeup_ros_node");
   yaets::TraceSession session("wakeup.log");
 
   // sched_param sch;
@@ -29,15 +27,13 @@ int main(int argc, char * argv[])
   //   throw std::runtime_error{std::string("failed to set scheduler: ") + std::strerror(errno)};
   // }
 
-  rclcpp::Rate loop_rate(20ms);
-  while (rclcpp::ok()) {
+  ros::WallRate loop_rate(50.0);  // 50 Hz = 20ms period
+  while (ros::ok()) {
     {
       TRACE_EVENT(session);
     }
     loop_rate.sleep();
   }
-
-  rclcpp::shutdown();
 
   return 0;
 }

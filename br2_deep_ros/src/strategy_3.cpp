@@ -13,216 +13,173 @@
 // limitations under the License.
 
 #include <fstream>
+#include <stdexcept>
+#include <cstring>
+#include <thread>
 
 #include "yaets/tracing.hpp"
 
-#include "rclcpp/rclcpp.hpp"
-#include "sensor_msgs/msg/image.hpp"
-#include "vision_msgs/msg/detection3_d.hpp"
+#include "ros/ros.h"
+#include "sensor_msgs/Image.h"
+#include "vision_msgs/Detection3D.h"
 
-using namespace std::chrono_literals;
 using std::placeholders::_1;
 
 
 yaets::TraceSession session("strategy_3.log");
 
 
-void waste_time(rclcpp::Node::SharedPtr node, const rclcpp::Duration & duration)
+void waste_time(const ros::WallDuration & duration)
 {
-  auto start = node->now();
-  while (node->now() - start < duration) {}
+  ros::WallTime start = ros::WallTime::now();
+  while (ros::WallTime::now() - start < duration) {}
 }
 
 
-class SensorDriverNode : public rclcpp::Node
+class SensorDriverNode
 {
 public:
-  SensorDriverNode()
-  : Node("sensor_driver")
+  SensorDriverNode(ros::NodeHandle & nh, ros::NodeHandle & rt_nh)
   {
-    rt_callback_group_ = create_callback_group(
-      rclcpp::CallbackGroupType::MutuallyExclusive, false);
-
-    pub_ = create_publisher<sensor_msgs::msg::Image>("image", 100);
-    timer_scan_ = create_wall_timer(
-      10ms, std::bind(&SensorDriverNode::produce_data, this), rt_callback_group_);
-    timer_state_ = create_wall_timer(100ms, std::bind(&SensorDriverNode::print_state, this));
+    pub_ = nh.advertise<sensor_msgs::Image>("image", 100);
+    // RT timer on the RT callback queue
+    timer_scan_ = rt_nh.createWallTimer(
+      ros::WallDuration(0.01), &SensorDriverNode::produce_data, this);
+    // Non-RT timer on the main callback queue
+    timer_state_ = nh.createWallTimer(
+      ros::WallDuration(0.1), &SensorDriverNode::print_state, this);
   }
 
-  void produce_data()
+  void produce_data(const ros::WallTimerEvent &)
   {
     SHARED_TRACE_START("brake_process");
 
-    waste_time(shared_from_this(), 200us);
+    waste_time(ros::WallDuration(0.0002));
 
-    sensor_msgs::msg::Image image_msg;
-    pub_->publish(image_msg);
+    sensor_msgs::Image image_msg;
+    pub_.publish(image_msg);
   }
 
-  void print_state()
+  void print_state(const ros::WallTimerEvent &)
   {
-    waste_time(shared_from_this(), 1ms);
-  }
-
-  rclcpp::CallbackGroup::SharedPtr get_rt_callback_group()
-  {
-    return rt_callback_group_;
+    waste_time(ros::WallDuration(0.001));
   }
 
 private:
-  rclcpp::Publisher<sensor_msgs::msg::Image>::SharedPtr pub_;
-  rclcpp::TimerBase::SharedPtr timer_scan_, timer_state_;
-  rclcpp::CallbackGroup::SharedPtr rt_callback_group_;
+  ros::Publisher pub_;
+  ros::WallTimer timer_scan_, timer_state_;
 };
 
 
-class ObstacleDetectorNode : public rclcpp::Node
+class ObstacleDetectorNode
 {
 public:
-  ObstacleDetectorNode()
-  : Node("obstacle_detector")
+  ObstacleDetectorNode(ros::NodeHandle & nh, ros::NodeHandle & rt_nh)
   {
-    rt_callback_group_ = create_callback_group(
-      rclcpp::CallbackGroupType::MutuallyExclusive, false);
-
-    rclcpp::SubscriptionOptions sub_options;
-    sub_options.callback_group = rt_callback_group_;
-
-    sub_ = create_subscription<sensor_msgs::msg::Image>(
-      "image", 100,
-      std::bind(&ObstacleDetectorNode::detect_obstacle, this, _1),
-      sub_options);
-    pub_ = create_publisher<vision_msgs::msg::Detection3D>("obstacles", 100);
-    timer_state_ = create_wall_timer(100ms, std::bind(&ObstacleDetectorNode::print_state, this));
+    // RT subscription on the RT callback queue
+    sub_ = rt_nh.subscribe("image", 100, &ObstacleDetectorNode::detect_obstacle, this);
+    pub_ = nh.advertise<vision_msgs::Detection3D>("obstacles", 100);
+    // Non-RT timer on the main callback queue
+    timer_state_ = nh.createWallTimer(
+      ros::WallDuration(0.1), &ObstacleDetectorNode::print_state, this);
   }
 
-  void detect_obstacle(const sensor_msgs::msg::Image::SharedPtr msg)
+  void detect_obstacle(const sensor_msgs::Image::ConstPtr & msg)
   {
-    waste_time(shared_from_this(), 5ms);
+    waste_time(ros::WallDuration(0.005));
 
-    vision_msgs::msg::Detection3D detection_msg;
-    pub_->publish(detection_msg);
+    vision_msgs::Detection3D detection_msg;
+    pub_.publish(detection_msg);
   }
 
 
-  void print_state()
+  void print_state(const ros::WallTimerEvent &)
   {
-    waste_time(shared_from_this(), 1ms);
-  }
-
-  rclcpp::CallbackGroup::SharedPtr get_rt_callback_group()
-  {
-    return rt_callback_group_;
+    waste_time(ros::WallDuration(0.001));
   }
 
 private:
-  rclcpp::Subscription<sensor_msgs::msg::Image>::SharedPtr sub_;
-  rclcpp::Publisher<vision_msgs::msg::Detection3D>::SharedPtr pub_;
-  rclcpp::TimerBase::SharedPtr timer_state_;
-  rclcpp::CallbackGroup::SharedPtr rt_callback_group_;
+  ros::Subscriber sub_;
+  ros::Publisher pub_;
+  ros::WallTimer timer_state_;
 };
 
 
-class LoggerNode : public rclcpp::Node
+class LoggerNode
 {
 public:
-  LoggerNode()
-  : Node("logger_node")
+  explicit LoggerNode(ros::NodeHandle & nh)
   {
-    sub_ = create_subscription<sensor_msgs::msg::Image>(
-      "image", 100, std::bind(&LoggerNode::cb, this, _1));
+    sub_ = nh.subscribe("image", 100, &LoggerNode::cb, this);
 
-    timer_state_ = create_wall_timer(10ms, std::bind(&LoggerNode::print_state, this));
+    timer_state_ = nh.createWallTimer(
+      ros::WallDuration(0.01), &LoggerNode::print_state, this);
   }
 
-  void cb(const sensor_msgs::msg::Image::SharedPtr msg)
+  void cb(const sensor_msgs::Image::ConstPtr & msg)
   {
-    waste_time(shared_from_this(), 500us);
+    waste_time(ros::WallDuration(0.0005));
   }
 
 
-  void print_state()
+  void print_state(const ros::WallTimerEvent &)
   {
-    waste_time(shared_from_this(), 2ms);
+    waste_time(ros::WallDuration(0.002));
   }
 
 private:
-  rclcpp::Subscription<sensor_msgs::msg::Image>::SharedPtr sub_;
-  rclcpp::TimerBase::SharedPtr timer_state_;
+  ros::Subscriber sub_;
+  ros::WallTimer timer_state_;
 };
 
 
-class BrakeActuatorNode : public rclcpp::Node
+class BrakeActuatorNode
 {
 public:
-  BrakeActuatorNode()
-  : Node("brake_actuator")
+  BrakeActuatorNode(ros::NodeHandle & nh, ros::NodeHandle & rt_nh)
   {
-    rt_callback_group_ = create_callback_group(
-      rclcpp::CallbackGroupType::MutuallyExclusive, false);
-
-    rclcpp::SubscriptionOptions sub_options;
-    sub_options.callback_group = rt_callback_group_;
-
-    sub_ = create_subscription<vision_msgs::msg::Detection3D>(
-      "obstacles", 100,
-      std::bind(&BrakeActuatorNode::react_obstacle, this, _1),
-      sub_options);
-    timer_state_ = create_wall_timer(100ms, std::bind(&BrakeActuatorNode::print_state, this));
+    // RT subscription on the RT callback queue
+    sub_ = rt_nh.subscribe("obstacles", 100, &BrakeActuatorNode::react_obstacle, this);
+    // Non-RT timer on the main callback queue
+    timer_state_ = nh.createWallTimer(
+      ros::WallDuration(0.1), &BrakeActuatorNode::print_state, this);
   }
 
-  void react_obstacle(vision_msgs::msg::Detection3D::SharedPtr msg)
+  void react_obstacle(const vision_msgs::Detection3D::ConstPtr & msg)
   {
-    waste_time(shared_from_this(), 2ms);
+    waste_time(ros::WallDuration(0.002));
     SHARED_TRACE_END("brake_process");
   }
 
 
-  void print_state()
+  void print_state(const ros::WallTimerEvent &)
   {
-    waste_time(shared_from_this(), 1ms);
-  }
-
-  rclcpp::CallbackGroup::SharedPtr get_rt_callback_group()
-  {
-    return rt_callback_group_;
+    waste_time(ros::WallDuration(0.001));
   }
 
 private:
-  rclcpp::Subscription<vision_msgs::msg::Detection3D>::SharedPtr sub_;
-  rclcpp::TimerBase::SharedPtr timer_state_;
-  rclcpp::CallbackGroup::SharedPtr rt_callback_group_;
+  ros::Subscriber sub_;
+  ros::WallTimer timer_state_;
 };
 
 
 int main(int argc, char * argv[])
 {
-  rclcpp::init(argc, argv);
+  ros::init(argc, argv, "strategy_3_node");
 
   SHARED_TRACE_INIT(session, "brake_process");
 
-  auto node_sensor_driver = std::make_shared<SensorDriverNode>();
-  auto node_obstacle_detector = std::make_shared<ObstacleDetectorNode>();
-  auto node_logger = std::make_shared<LoggerNode>();
-  auto node_brake_actuator = std::make_shared<BrakeActuatorNode>();
+  ros::NodeHandle nh;
 
-  rclcpp::executors::SingleThreadedExecutor no_rt_executor;
-  rclcpp::executors::MultiThreadedExecutor rt_executor(rclcpp::ExecutorOptions(), 3);
+  // RT callback queue (emulates the RT MultiThreadedExecutor with 3 threads)
+  ros::CallbackQueue rt_queue;
+  ros::NodeHandle rt_nh;
+  rt_nh.setCallbackQueue(&rt_queue);
 
-  no_rt_executor.add_node(node_sensor_driver);
-  no_rt_executor.add_node(node_obstacle_detector);
-  no_rt_executor.add_node(node_logger);
-  no_rt_executor.add_node(node_brake_actuator);
-
-  rt_executor.add_callback_group(
-    node_sensor_driver->get_rt_callback_group(),
-    node_sensor_driver->get_node_base_interface());
-  rt_executor.add_callback_group(
-    node_obstacle_detector->get_rt_callback_group(),
-    node_obstacle_detector->get_node_base_interface());
-  rt_executor.add_callback_group(
-    node_brake_actuator->get_rt_callback_group(),
-    node_brake_actuator->get_node_base_interface());
+  SensorDriverNode sensor_driver(nh, rt_nh);
+  ObstacleDetectorNode obstacle_detector(nh, rt_nh);
+  LoggerNode logger(nh);
+  BrakeActuatorNode brake_actuator(nh, rt_nh);
 
   auto rt_thread = std::thread(
     [&]() {
@@ -234,13 +191,16 @@ int main(int argc, char * argv[])
       //     std::strerror(errno)};
       // }
 
-      rt_executor.spin();
+      // Spin the RT queue with 3 threads
+      // (equivalent to ROS2 MultiThreadedExecutor with 3 threads)
+      ros::AsyncSpinner rt_spinner(3, &rt_queue);
+      rt_spinner.start();
+      ros::waitForShutdown();
   });
 
-  no_rt_executor.spin();
+  ros::spin();
 
   rt_thread.join();
 
-  rclcpp::shutdown();
   return 0;
 }

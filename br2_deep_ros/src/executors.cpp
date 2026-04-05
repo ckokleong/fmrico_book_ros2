@@ -16,102 +16,99 @@
 
 #include "yaets/tracing.hpp"
 
-#include "rclcpp/rclcpp.hpp"
-#include "std_msgs/msg/int32.hpp"
+#include "ros/ros.h"
+#include "std_msgs/Int32.h"
 
-using namespace std::chrono_literals;
 using std::placeholders::_1;
 
 
 yaets::TraceSession session("session1.log");
 
-class ProducerNode : public rclcpp::Node
+class ProducerNode
 {
 public:
-  ProducerNode()
-  : Node("producer_node")
+  explicit ProducerNode(ros::NodeHandle & nh)
   {
-    pub_1_ = create_publisher<std_msgs::msg::Int32>("topic_1", 100);
-    pub_2_ = create_publisher<std_msgs::msg::Int32>("topic_2", 100);
-    timer_ = create_wall_timer(1ms, std::bind(&ProducerNode::timer_callback, this));
+    pub_1_ = nh.advertise<std_msgs::Int32>("topic_1", 100);
+    pub_2_ = nh.advertise<std_msgs::Int32>("topic_2", 100);
+    timer_ = nh.createWallTimer(
+      ros::WallDuration(0.001), &ProducerNode::timer_callback, this);
   }
 
-  void timer_callback()
+  void timer_callback(const ros::WallTimerEvent &)
   {
     message_.data += 1;
-    pub_1_->publish(message_);
+    pub_1_.publish(message_);
     message_.data += 1;
-    pub_2_->publish(message_);
+    pub_2_.publish(message_);
   }
 
 private:
-  rclcpp::Publisher<std_msgs::msg::Int32>::SharedPtr pub_1_, pub_2_;
-  rclcpp::TimerBase::SharedPtr timer_;
-  std_msgs::msg::Int32 message_;
+  ros::Publisher pub_1_, pub_2_;
+  ros::WallTimer timer_;
+  std_msgs::Int32 message_;
 };
 
-class ConsumerNode : public rclcpp::Node
+class ConsumerNode
 {
 public:
-  ConsumerNode()
-  : Node("consumer_node")
+  explicit ConsumerNode(ros::NodeHandle & nh)
   {
-    sub_2_ = create_subscription<std_msgs::msg::Int32>(
-      "topic_2", 100, std::bind(&ConsumerNode::cb_2, this, _1));
-    sub_1_ = create_subscription<std_msgs::msg::Int32>(
-      "topic_1", 100, std::bind(&ConsumerNode::cb_1, this, _1));
+    sub_2_ = nh.subscribe("topic_2", 100, &ConsumerNode::cb_2, this);
+    sub_1_ = nh.subscribe("topic_1", 100, &ConsumerNode::cb_1, this);
 
-    timer_ = create_wall_timer(10ms, std::bind(&ConsumerNode::timer_cb, this));
+    timer_ = nh.createWallTimer(
+      ros::WallDuration(0.01), &ConsumerNode::timer_cb, this);
   }
 
-  void cb_1(const std_msgs::msg::Int32::SharedPtr msg)
+  void cb_1(const std_msgs::Int32::ConstPtr & msg)
   {
     TRACE_EVENT(session);
 
-    waste_time(500us);
+    waste_time(ros::WallDuration(0.0005));
   }
 
-  void cb_2(const std_msgs::msg::Int32::SharedPtr msg)
+  void cb_2(const std_msgs::Int32::ConstPtr & msg)
   {
     TRACE_EVENT(session);
 
-    waste_time(500us);
+    waste_time(ros::WallDuration(0.0005));
   }
 
-  void timer_cb()
+  void timer_cb(const ros::WallTimerEvent &)
   {
     TRACE_EVENT(session);
 
-    waste_time(5ms);
+    waste_time(ros::WallDuration(0.005));
   }
 
-  void waste_time(const rclcpp::Duration & duration)
+  void waste_time(const ros::WallDuration & duration)
   {
-    auto start = now();
-    while (now() - start < duration) {}
+    ros::WallTime start = ros::WallTime::now();
+    while (ros::WallTime::now() - start < duration) {}
   }
 
 private:
-  rclcpp::Subscription<std_msgs::msg::Int32>::SharedPtr sub_1_;
-  rclcpp::Subscription<std_msgs::msg::Int32>::SharedPtr sub_2_;
-  rclcpp::TimerBase::SharedPtr timer_;
+  ros::Subscriber sub_1_;
+  ros::Subscriber sub_2_;
+  ros::WallTimer timer_;
 };
 
 int main(int argc, char * argv[])
 {
-  rclcpp::init(argc, argv);
+  ros::init(argc, argv, "executors_node");
+  ros::NodeHandle nh;
 
-  auto node_pub = std::make_shared<ProducerNode>();
-  auto node_sub1 = std::make_shared<ConsumerNode>();
+  ProducerNode producer(nh);
+  ConsumerNode consumer(nh);
 
-  rclcpp::executors::SingleThreadedExecutor executor;
-  // rclcpp::executors::MultiThreadedExecutor executor(rclcpp::ExecutorOptions(), 8);
+  // Single-threaded spinning (equivalent to ROS2 SingleThreadedExecutor)
+  ros::spin();
 
-  executor.add_node(node_pub);
-  executor.add_node(node_sub1);
+  // Multi-threaded spinning (equivalent to ROS2 MultiThreadedExecutor with 8 threads)
+  // ros::AsyncSpinner spinner(8);
+  // spinner.start();
+  // ros::waitForShutdown();
 
-  executor.spin();
-
-  rclcpp::shutdown();
   return 0;
 }
