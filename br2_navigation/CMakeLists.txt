@@ -1,8 +1,11 @@
-cmake_minimum_required(VERSION 3.5)
+cmake_minimum_required(VERSION 3.0.2)
 project(br2_navigation)
 
-find_package(ament_cmake_auto REQUIRED)
+find_package(catkin REQUIRED)
 
+catkin_package()
 
-ament_auto_package(INSTALL_TO_SHARE launch params maps)
+install(DIRECTORY launch params maps
+  DESTINATION ${CATKIN_PACKAGE_SHARE_DESTINATION}
+)
 

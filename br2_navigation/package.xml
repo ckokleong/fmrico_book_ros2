@@ -1,16 +1,18 @@
 <?xml version="1.0"?>
-<?xml-model href="http://download.ros.org/schema/package_format3.xsd" schematypens="http://www.w3.org/2001/XMLSchema"?>
-<package format="3">
+<package format="2">
   <name>br2_navigation</name>
   <version>0.2.0</version>
-  <description>Mastering Navigation2 in ROS2</description>
+  <description>Mastering Navigation in ROS1 Noetic</description>
   <maintainer email="fmrico@gmail.com">fmrico</maintainer>
   <license>Apache License, Version 2.0</license>
 
-  <buildtool_depend>ament_cmake</buildtool_depend>
-  <build_depend>ament_cmake_auto</build_depend>
+  <buildtool_depend>catkin</buildtool_depend>
 
-  <export>
-    <build_type>ament_cmake</build_type>
-  </export>
+  <exec_depend>move_base</exec_depend>
+  <exec_depend>amcl</exec_depend>
+  <exec_depend>map_server</exec_depend>
+  <exec_depend>slam_toolbox</exec_depend>
+  <exec_depend>dwa_local_planner</exec_depend>
+  <exec_depend>navfn</exec_depend>
+  <exec_depend>rviz</exec_depend>
 </package>
